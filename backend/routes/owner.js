@@ -30,16 +30,36 @@ router.get('/employees', adminMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/owner/employees/:id — update employee (base salary, distance, etc.)
+// PUT /api/owner/employees/:id — update employee (base salary, distance, role, area, pincodes, mrId)
 router.put('/employees/:id', adminMiddleware, async (req, res) => {
   try {
-    const { baseSalary, travelDistance, department, designation } = req.body;
+    const { baseSalary, travelDistance, department, designation, role, area, pincodes, mrId } = req.body;
     const emp = await Employee.findByIdAndUpdate(
       req.params.id,
-      { baseSalary, travelDistance, department, designation },
+      { baseSalary, travelDistance, department, designation, role, area, pincodes, mrId },
       { new: true }
     ).select('-password');
     res.json(emp);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/owner/mr-list — list all MRs
+router.get('/mr-list', adminMiddleware, async (req, res) => {
+  try {
+    const mrs = await Employee.find({ role: 'mr' }).select('-password').sort({ employeeId: 1 });
+    res.json(mrs);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/owner/mr/:mrId/team — get employees under a specific MR
+router.get('/mr/:mrId/team', adminMiddleware, async (req, res) => {
+  try {
+    const team = await Employee.find({ mrId: req.params.mrId }).select('-password');
+    res.json(team);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

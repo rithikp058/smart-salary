@@ -22,7 +22,8 @@ export default function Login() {
       if (MOCK_MODE) { saveSession('mock-token', MOCK_USER); navigate('/dashboard'); return; }
       const data: any = await api.login({ employeeId: fd.get('empid'), password: fd.get('password') });
       saveSession(data.token, data.employee);
-      navigate('/dashboard');
+      if (data.employee?.role === 'mr') navigate('/mr-dashboard');
+      else navigate('/dashboard');
     } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
     setLoading(false);
   }
@@ -161,6 +162,8 @@ export default function Login() {
               </form>
               <p className="text-center text-sm text-slate-600 mt-6">
                 <Link to="/" className="text-blue-400 hover:text-blue-300 transition-colors">← Back to Home</Link>
+                <span className="mx-2 text-slate-700">·</span>
+                <Link to="/mr-login" className="text-green-400 hover:text-green-300 transition-colors">MR Login →</Link>
                 <span className="mx-2 text-slate-700">·</span>
                 <Link to="/owner-login" className="text-purple-400 hover:text-purple-300 transition-colors">Owner Login →</Link>
               </p>

@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [pwdAlert, setPwdAlert] = useState<{ msg: string; type: string } | null>(null);
   const [pwdLoading, setPwdLoading] = useState(false);
+  const [doctorProgress, setDoctorProgress] = useState<{ visited: number; target: number; percentage: number } | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn()) { navigate('/login'); return; }
@@ -21,6 +22,7 @@ export default function Dashboard() {
     api.getProfile().then(setProfile).catch(() => {});
     api.getNotifications().then((n: any) => setNotifs(n)).catch(() => {});
     api.getMyAttendance().then(setAttendance).catch(() => {});
+    api.getMyProgress().then((d: any) => setDoctorProgress({ visited: d.visited || 0, target: d.target || 0, percentage: d.percentage || 0 })).catch(() => {});
   }, []);
 
   async function markAllRead() {
@@ -98,11 +100,62 @@ export default function Dashboard() {
           ))}
         </div>
 
+        {/* Doctor Visit Progress */}
+        {doctorProgress !== null && (
+          <div className="rounded-2xl p-5 mb-8"
+            style={{ background: 'rgba(249,115,22,0.07)', border: '1px solid rgba(249,115,22,0.2)' }}>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div>
+                <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">🏥 Doctor Visits — {monthLabel}</span>
+                <div className="text-white font-bold text-xl mt-0.5">
+                  Visited {doctorProgress.visited}
+                  {doctorProgress.target > 0
+                    ? <span className="text-slate-400 font-normal text-base"> / {doctorProgress.target} Doctors</span>
+                    : <span className="text-slate-500 text-sm font-normal ml-2">(No target set)</span>
+                  }
+                </div>
+              </div>
+              {doctorProgress.target > 0 && (
+                <span className={`text-sm font-bold px-3 py-1.5 rounded-full ${
+                  doctorProgress.percentage >= 100 ? 'bg-green-500/20 text-green-300' :
+                  doctorProgress.percentage >= 60  ? 'bg-orange-500/20 text-orange-300' :
+                  doctorProgress.percentage >= 30  ? 'bg-yellow-500/20 text-yellow-300' :
+                  'bg-red-500/20 text-red-300'
+                }`}>
+                  {doctorProgress.percentage}% complete
+                </span>
+              )}
+            </div>
+            {doctorProgress.target > 0 && (
+              <>
+                <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${doctorProgress.percentage}%`,
+                      background: doctorProgress.percentage >= 100
+                        ? 'linear-gradient(90deg,#059669,#10b981)'
+                        : doctorProgress.percentage >= 60
+                        ? 'linear-gradient(90deg,#ea580c,#f97316)'
+                        : doctorProgress.percentage >= 30
+                        ? 'linear-gradient(90deg,#d97706,#f59e0b)'
+                        : 'linear-gradient(90deg,#dc2626,#ef4444)',
+                    }} />
+                </div>
+                <div className="flex justify-between text-xs text-slate-500 mt-1.5">
+                  <span>{doctorProgress.visited} visited (GPS + photo verified)</span>
+                  <span>{Math.max(0, doctorProgress.target - doctorProgress.visited)} remaining</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Action Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[
             { to: '/salary', icon: '💰', title: 'Salary', desc: 'View and process your monthly salary.', color: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.15)' },
             { to: '/attendance', icon: '📅', title: 'Attendance', desc: 'Check in daily and view your attendance.', color: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.15)' },
+            { to: '/call-report', icon: '📋', title: 'Field Reports', desc: 'Report doctor visits and raise stock requests.', color: 'rgba(249,115,22,0.08)', border: 'rgba(249,115,22,0.15)' },
             { to: '/profile', icon: '👤', title: 'Profile', desc: 'Update personal and bank details.', color: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.15)' },
           ].map(card => (
             <Link key={card.title} to={card.to}
@@ -114,15 +167,21 @@ export default function Dashboard() {
               <div className="absolute bottom-4 right-4 text-slate-600 group-hover:text-blue-400 transition-colors text-lg">→</div>
             </Link>
           ))}
+        </div>
+        {/* Notifications quick access */}
+        <div className="mb-8">
           <button onClick={() => setShowNotifs(true)}
-            className="rounded-2xl p-6 text-left transition-all hover:-translate-y-1 group relative overflow-hidden cursor-pointer"
+            className="rounded-2xl p-5 text-left transition-all hover:-translate-y-1 group relative overflow-hidden cursor-pointer w-full sm:w-auto"
             style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.15)' }}>
-            <div className="text-3xl mb-3 relative inline-block">
-              🔔{unreadCount > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse-glow" />}
+            <div className="flex items-center gap-3">
+              <div className="text-2xl relative inline-block">
+                🔔{unreadCount > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse-glow" />}
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-sm">Notifications</h3>
+                <p className="text-xs text-slate-500">{unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}</p>
+              </div>
             </div>
-            <h3 className="font-bold text-white mb-1 text-sm">Notifications</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">Salary alerts and payroll updates.</p>
-            <div className="absolute bottom-4 right-4 text-slate-600 group-hover:text-yellow-400 transition-colors text-lg">→</div>
           </button>
         </div>
 

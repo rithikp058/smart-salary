@@ -260,4 +260,77 @@ export const api = {
     }
     return request('/attendance/override', { method: 'PUT', body: JSON.stringify(body) }, true);
   },
+
+  // ── Pharma: Doctors ──────────────────────────────────────────────────────
+  getDoctors: (filters?: { area?: string; pincode?: string; type?: string; search?: string }) => {
+    const q = filters ? Object.entries(filters).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`).join('&') : '';
+    return req(`/doctors${q ? `?${q}` : ''}`);
+  },
+  searchDoctors: (search: string, area?: string) => {
+    const q = [`search=${encodeURIComponent(search)}`, area && `area=${encodeURIComponent(area)}`].filter(Boolean).join('&');
+    return req(`/doctors?${q}`);
+  },
+  addDoctor: (body: object) => req('/doctors', { method: 'POST', body: JSON.stringify(body) }),
+  updateDoctor: (id: string, body: object) => req(`/doctors/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteDoctor: (id: string) => req(`/doctors/${id}`, { method: 'DELETE' }),
+
+  // ── Pharma: Call Reports ─────────────────────────────────────────────────
+  submitCallReport: (body: object) => req('/callreports', { method: 'POST', body: JSON.stringify(body) }),
+  getMyCallReports: (month?: string, date?: string) => {
+    const q = [month && `month=${month}`, date && `date=${date}`].filter(Boolean).join('&');
+    return req(`/callreports/my${q ? `?${q}` : ''}`);
+  },
+  getTeamCallReports: (month?: string, employeeId?: string) => {
+    const q = [month && `month=${month}`, employeeId && `employeeId=${employeeId}`].filter(Boolean).join('&');
+    return req(`/callreports/team${q ? `?${q}` : ''}`);
+  },
+  getAllCallReports: (month?: string, employeeId?: string) => {
+    const q = [month && `month=${month}`, employeeId && `employeeId=${employeeId}`].filter(Boolean).join('&');
+    return req(`/callreports/all${q ? `?${q}` : ''}`, {}, true);
+  },
+  verifyCallReport: (id: string, verified: boolean, mrNote?: string) =>
+    req(`/callreports/${id}/verify`, { method: 'PUT', body: JSON.stringify({ verified, mrNote }) }),
+
+  // ── Pharma: Stock Requests ───────────────────────────────────────────────
+  raiseStockRequest: (body: object) => req('/stockrequests', { method: 'POST', body: JSON.stringify(body) }),
+  getMyStockRequests: (month?: string) => req(`/stockrequests/my${month ? `?month=${month}` : ''}`),
+  getTeamStockRequests: (month?: string, status?: string) => {
+    const q = [month && `month=${month}`, status && `status=${status}`].filter(Boolean).join('&');
+    return req(`/stockrequests/team${q ? `?${q}` : ''}`);
+  },
+  getAllStockRequests: (month?: string, status?: string) => {
+    const q = [month && `month=${month}`, status && `status=${status}`].filter(Boolean).join('&');
+    return req(`/stockrequests/all${q ? `?${q}` : ''}`, {}, true);
+  },
+  approveStockRequest: (id: string, destination?: string) =>
+    req(`/stockrequests/${id}/approve`, { method: 'PUT', body: JSON.stringify({ destination }) }),
+  rejectStockRequest: (id: string, reason: string) =>
+    req(`/stockrequests/${id}/reject`, { method: 'PUT', body: JSON.stringify({ reason }) }),
+  returnStock: (id: string, body: object) =>
+    req(`/stockrequests/${id}/return`, { method: 'PUT', body: JSON.stringify(body) }),
+  getIncentiveSummary: (employeeId: string, month: string) =>
+    req(`/stockrequests/incentive-summary/${employeeId}/${month}`, {}, true),
+
+  // ── Owner: MR management ─────────────────────────────────────────────────
+  getMRList: () => req('/owner/mr-list', {}, true),
+  getMRTeam: (mrId: string) => req(`/owner/mr/${mrId}/team`, {}, true),
+
+  // ── Doctor Targets & Progress ─────────────────────────────────────────
+  getMyProgress: (month?: string) =>
+    req(`/targets/my-progress${month ? `?month=${month}` : ''}`),
+  setTarget: (body: { employeeId: string; month: string; target: number }) =>
+    req('/targets', { method: 'POST', body: JSON.stringify(body) }),
+  getTeamProgress: (month?: string) => {
+    return req(`/targets/team${month ? `?month=${month}` : ''}`);
+  },
+  getAllProgress: (month?: string, mrId?: string, area?: string) => {
+    const q = [month && `month=${month}`, mrId && `mrId=${mrId}`, area && `area=${area}`].filter(Boolean).join('&');
+    return req(`/targets/all${q ? `?${q}` : ''}`, {}, true);
+  },
+  getTargets: (month?: string) =>
+    req(`/targets${month ? `?month=${month}` : ''}`),
+
+  // ── Location / Places search (Nominatim proxy) ────────────────────────
+  searchPlaces: (q: string) =>
+    req(`/places/search?q=${encodeURIComponent(q)}`),
 };

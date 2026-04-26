@@ -6,7 +6,7 @@ const authMiddleware = require('../middleware/auth');
 
 const signToken = (employee) =>
   jwt.sign(
-    { id: employee._id, employeeId: employee.employeeId },
+    { id: employee._id, employeeId: employee.employeeId, role: employee.role || 'employee' },
     process.env.JWT_SECRET || 'fallback_secret',
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
@@ -41,7 +41,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
 
     const token = signToken(employee);
-    res.json({ token, employee: { id: employee._id, employeeId: employee.employeeId, name: employee.name, email: employee.email } });
+    res.json({ token, employee: { id: employee._id, employeeId: employee.employeeId, name: employee.name, email: employee.email, role: employee.role || 'employee', area: employee.area, pincodes: employee.pincodes, mrId: employee.mrId } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

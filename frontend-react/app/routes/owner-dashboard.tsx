@@ -4,7 +4,262 @@ import * as XLSX from 'xlsx';
 import { api } from '../utils/api';
 import { isOwner, clearSession } from '../utils/auth';
 
-type Tab = 'overview' | 'employees' | 'attendance' | 'salaries' | 'deductions' | 'issues' | 'excel' | 'holidays' | 'leaves';
+type Tab = 'overview' | 'employees' | 'attendance' | 'salaries' | 'deductions' | 'issues' | 'excel' | 'holidays' | 'leaves' | 'doctors' | 'callreports' | 'stockrequests';
+
+// ── Quick-access search + detail modal ────────────────────────────────────
+function GlobalSearch({ employees }: { employees: any[] }) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<any>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [editForm, setEditForm] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [alert, setAlert] = useState('');
+  const [progress, setProgress] = useState<any>(null);
+  const [calls, setCalls] = useState<any[]>([]);
+  const [salary, setSalary] = useState<any>(null);
+
+  const month = new Date().toISOString().slice(0, 7);
+
+  const filtered = query.trim().length < 1 ? [] : employees.filter(e =>
+    e.name?.toLowerCase().includes(query.toLowerCase()) ||
+    e.employeeId?.toLowerCase().includes(query.toLowerCase()) ||
+    e.area?.toLowerCase().includes(query.toLowerCase()) ||
+    e.mrId?.toLowerCase().includes(query.toLowerCase())
+  ).slice(0, 8);
+
+  async function openDetail(emp: any) {
+    setSelected(emp);
+    setDetail(emp);
+    setEditForm({ ...emp, pincodes: emp.pincodes?.join(', ') || '' });
+    setQuery('');
+    // Load extra data
+    try {
+      const [prog, c, sal] = await Promise.all([
+        api.getAllProgress(month, undefined, undefined).catch(() => []),
+        api.getAllCallReports(month, emp.employeeId).catch(() => []),
+        api.getAllSalaries(month).catch(() => []),
+      ]);
+      const progArr = Array.isArray(prog) ? prog : [];
+      setProgress(progArr.find((p: any) => p.employeeId === emp.employeeId) || null);
+      setCalls(Array.isArray(c) ? c : []);
+      const salArr = Array.isArray(sal) ? sal : [];
+      setSalary(salArr.find((s: any) => s.employeeId === emp.employeeId) || null);
+    } catch {}
+  }
+
+  async function saveEdit() {
+    if (!editForm) return;
+    setSaving(true);
+    try {
+      await api.updateEmployee(detail._id || detail.id, {
+        ...editForm,
+        pincodes: editForm.pincodes ? editForm.pincodes.split(',').map((p: string) => p.trim()).filter(Boolean) : [],
+      });
+      setAlert('✅ Saved successfully');
+      setDetail({ ...detail, ...editForm });
+      setTimeout(() => setAlert(''), 3000);
+    } catch (err: any) { setAlert('❌ ' + err.message); }
+    setSaving(false);
+  }
+
+  if (!selected) {
+    return (
+      <div className="relative mb-6">
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-white/10"
+          style={{ background: 'rgba(255,255,255,0.04)' }}>
+          <span className="text-slate-400">🔍</span>
+          <input
+            className="flex-1 bg-transparent text-white text-sm outline-none placeholder-slate-500"
+            placeholder="Search any Employee or MR by name, ID, area..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+          {query && <button onClick={() => setQuery('')} className="text-slate-500 hover:text-white text-xs">✕</button>}
+        </div>
+        {filtered.length > 0 && (
+          <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl"
+            style={{ background: '#0d1829', border: '1px solid rgba(255,255,255,0.1)' }}>
+            {filtered.map(emp => (
+              <button key={emp._id || emp.id} onClick={() => openDetail(emp)}
+                className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0 flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${emp.role === 'mr' ? 'bg-green-600' : 'bg-blue-600'}`}>
+                  {emp.name?.charAt(0)?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-white text-sm font-medium">{emp.name}</div>
+                  <div className="text-slate-400 text-xs">{emp.employeeId} · {emp.area || 'No area'}</div>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${emp.role === 'mr' ? 'bg-green-500/15 text-green-300' : 'bg-blue-500/15 text-blue-300'}`}>
+                  {emp.role === 'mr' ? '🧑‍💼 MR' : '👤 Employee'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Detail view
+  const isMRRole = detail?.role === 'mr';
+  const teamMembers = isMRRole ? employees.filter(e => e.mrId === detail.employeeId) : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 px-4 pb-8 overflow-y-auto"
+      style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
+      <div className="w-full max-w-3xl rounded-3xl overflow-hidden"
+        style={{ background: '#0a1628', border: '1px solid rgba(255,255,255,0.1)' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5"
+          style={{ background: isMRRole ? 'rgba(5,150,105,0.15)' : 'rgba(29,78,216,0.15)' }}>
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold text-white ${isMRRole ? 'bg-green-600' : 'bg-blue-600'}`}>
+              {detail.name?.charAt(0)?.toUpperCase()}
+            </div>
+            <div>
+              <div className="text-white font-bold text-lg">{detail.name}</div>
+              <div className="text-slate-400 text-sm">{detail.employeeId} · {isMRRole ? '🧑‍💼 Medical Representative' : '👤 Field Employee'}</div>
+            </div>
+          </div>
+          <button onClick={() => { setSelected(null); setDetail(null); setEditForm(null); setProgress(null); setCalls([]); setSalary(null); }}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">✕</button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {alert && <div className="text-sm px-3 py-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}>{alert}</div>}
+
+          {/* Stats row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              ['📍', 'Area', detail.area || '—'],
+              ['🏷️', 'Department', detail.department || '—'],
+              ['💰', 'Base Salary', `₹${(detail.baseSalary || 0).toLocaleString()}`],
+              isMRRole
+                ? ['👥', 'Team Size', teamMembers.length]
+                : ['🧑‍💼', 'MR', detail.mrId || '—'],
+            ].map(([icon, label, val]) => (
+              <div key={label as string} className="rounded-xl p-3 text-center" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                <div className="text-lg">{icon}</div>
+                <div className="text-xs text-slate-500 mt-1">{label}</div>
+                <div className="text-white text-sm font-semibold mt-0.5 truncate">{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Progress (employee only) */}
+          {!isMRRole && progress && (
+            <div className="rounded-xl p-4" style={{ background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.2)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white font-semibold text-sm">🏥 Doctor Visits — {month}</span>
+                <span className="text-blue-300 font-bold">{progress.visited} / {progress.target || '?'}</span>
+              </div>
+              {progress.target > 0 && (
+                <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                  <div className="h-full rounded-full" style={{ width: `${progress.percentage}%`, background: 'linear-gradient(90deg,#1d4ed8,#3b82f6)' }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Recent calls (employee only) */}
+          {!isMRRole && calls.length > 0 && (
+            <div>
+              <div className="text-white font-semibold text-sm mb-2">📋 Recent Calls ({calls.length} this month)</div>
+              <div className="space-y-2 max-h-36 overflow-y-auto">
+                {calls.slice(0, 5).map((c: any) => (
+                  <div key={c._id || c.id} className="flex items-center justify-between px-3 py-2 rounded-xl text-xs" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <span className="text-white">Dr. {c.doctorName}</span>
+                    <span className="text-slate-400">{c.hospitalName}</span>
+                    <span className={`px-2 py-0.5 rounded-full ${c.locationValid ? 'bg-green-500/15 text-green-300' : 'bg-red-500/15 text-red-300'}`}>
+                      {c.locationValid ? '📍 Valid' : '⚠️ Invalid'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Salary (employee only) */}
+          {!isMRRole && salary && (
+            <div className="rounded-xl p-4" style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}>
+              <div className="text-white font-semibold text-sm mb-2">💰 Salary — {month}</div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                {[['Net', `₹${salary.netSalary?.toLocaleString()}`], ['Incentive', `₹${salary.incentive || 0}`], ['Status', salary.status]].map(([k, v]) => (
+                  <div key={k} className="text-center">
+                    <div className="text-slate-400">{k}</div>
+                    <div className="text-white font-semibold mt-0.5">{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* MR team list */}
+          {isMRRole && teamMembers.length > 0 && (
+            <div>
+              <div className="text-white font-semibold text-sm mb-2">👥 Team Members ({teamMembers.length})</div>
+              <div className="space-y-2">
+                {teamMembers.map(m => (
+                  <div key={m._id || m.id} className="flex items-center justify-between px-3 py-2 rounded-xl text-xs" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <span className="text-white font-medium">{m.name}</span>
+                    <span className="text-slate-400">{m.employeeId}</span>
+                    <span className="text-slate-400">{m.area || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Edit form */}
+          {editForm && (
+            <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="text-white font-semibold text-sm">✏️ Quick Edit</div>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ['Role', 'role', 'select'],
+                  ['Area', 'area', 'text'],
+                  ['Pincodes', 'pincodes', 'text'],
+                  ['MR ID', 'mrId', 'text'],
+                  ['Base Salary', 'baseSalary', 'number'],
+                  ['Department', 'department', 'text'],
+                ].map(([label, field, type]) => (
+                  <div key={field}>
+                    <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1">{label}</label>
+                    {type === 'select' ? (
+                      <select
+                        className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10 outline-none"
+                        style={{ background: 'rgba(255,255,255,0.06)' }}
+                        value={editForm[field] || 'employee'}
+                        onChange={e => setEditForm((f: any) => ({ ...f, [field]: e.target.value }))}>
+                        <option value="employee">👤 Employee</option>
+                        <option value="mr">🧑‍💼 MR (Manager)</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={type}
+                        className="w-full px-3 py-2 rounded-lg text-sm text-white border border-white/10 outline-none"
+                        style={{ background: 'rgba(255,255,255,0.06)' }}
+                        value={editForm[field] || ''}
+                        onChange={e => setEditForm((f: any) => ({ ...f, [field]: e.target.value }))}
+                        placeholder={field === 'pincodes' ? '500072, 500073' : ''}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button onClick={saveEdit} disabled={saving}
+                className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#a855f7)' }}>
+                {saving ? 'Saving...' : '💾 Save Changes'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -19,7 +274,12 @@ export default function OwnerDashboard() {
   const [allIssues, setAllIssues] = useState<any[]>([]);
   const [resolveNote, setResolveNote] = useState<Record<string, string>>({});
 
-  // ── Excel Sheet State ──────────────────────────────────────────────────
+  // ── Pharma State ───────────────────────────────────────────────────────
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [allCallReports, setAllCallReports] = useState<any[]>([]);
+  const [allStockRequests, setAllStockRequests] = useState<any[]>([]);
+  const [doctorForm, setDoctorForm] = useState({ name: '', hospital: '', area: '', pincode: '', type: 'Regular', phone: '', latitude: '', longitude: '' });
+  const [showDoctorForm, setShowDoctorForm] = useState(false);
   type ExcelRow = {
     id: string;
     acNo: string; name: string; joiningDate: string; lastIncrDate: string;
@@ -157,6 +417,9 @@ export default function OwnerDashboard() {
     if (!isOwner()) { navigate('/owner-login'); return; }
     loadAll();
     api.getAllIssues().then((d: any) => setAllIssues(d)).catch(() => {});
+    api.getDoctors().then((d: any) => setDoctors(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getAllCallReports(selectedMonth).then((d: any) => setAllCallReports(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getAllStockRequests(selectedMonth).then((d: any) => setAllStockRequests(Array.isArray(d) ? d : [])).catch(() => {});
   }, [selectedMonth]);
 
   async function loadAll() {
@@ -257,6 +520,9 @@ export default function OwnerDashboard() {
     ['excel', '📋 Excel Sheet'],
     ['holidays', '🎉 Holidays'],
     ['leaves', '🏖️ Leaves'],
+    ['doctors', '👨‍⚕️ Doctors'],
+    ['callreports', '📋 Call Reports'],
+    ['stockrequests', '📦 Stock Requests'],
   ];
 
   return (
@@ -299,6 +565,9 @@ export default function OwnerDashboard() {
           </div>
         )}
 
+        {/* Global Search */}
+        <GlobalSearch employees={employees} />
+
         {/* Tabs */}
         <div className="flex gap-2 mb-8 flex-wrap p-1 rounded-2xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
           {tabs.map(([t, label]) => (
@@ -330,6 +599,25 @@ export default function OwnerDashboard() {
                 </div>
               ))}
             </div>
+
+            {/* Quick access cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              <button onClick={() => setTab('employees')}
+                className="rounded-2xl p-5 text-left transition-all hover:-translate-y-1 group"
+                style={{ background: 'rgba(29,78,216,0.08)', border: '1px solid rgba(29,78,216,0.2)' }}>
+                <div className="text-2xl mb-2">👥</div>
+                <div className="text-white font-bold">View All Employees</div>
+                <div className="text-slate-400 text-xs mt-1">{employees.filter(e => e.role !== 'mr').length} field employees · assign roles, area, MR</div>
+              </button>
+              <button onClick={() => setTab('employees')}
+                className="rounded-2xl p-5 text-left transition-all hover:-translate-y-1 group"
+                style={{ background: 'rgba(5,150,105,0.08)', border: '1px solid rgba(5,150,105,0.2)' }}>
+                <div className="text-2xl mb-2">🧑‍💼</div>
+                <div className="text-white font-bold">View All MRs</div>
+                <div className="text-slate-400 text-xs mt-1">{employees.filter(e => e.role === 'mr').length} medical representatives</div>
+              </button>
+            </div>
+
             <div className="flex gap-3 flex-wrap">
               <button onClick={exportExcel}
                 className="px-5 py-2.5 rounded-xl font-bold text-white text-sm transition-all hover:scale-[1.02]"
@@ -348,7 +636,7 @@ export default function OwnerDashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                    {['ID', 'Name', 'Department', 'Designation', 'Base Salary', 'Travel (km)'].map(h => (
+                    {['ID', 'Name', 'Role', 'Department', 'Designation', 'Base Salary', 'Travel (km)', 'Area', 'Pincodes', 'MR ID'].map(h => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
@@ -358,10 +646,31 @@ export default function OwnerDashboard() {
                     <tr key={i} className="border-t border-white/4 hover:bg-white/2">
                       <td className="px-5 py-3 text-blue-400 font-semibold">{e.employeeId}</td>
                       <td className="px-5 py-3 text-white">{e.name}</td>
+                      <td className="px-5 py-3">
+                        {/* Inline role assignment dropdown */}
+                        <select
+                          className="px-2 py-1 rounded-lg text-xs font-medium border border-white/10 outline-none cursor-pointer"
+                          style={{ background: e.role === 'mr' ? 'rgba(5,150,105,0.2)' : 'rgba(29,78,216,0.2)', color: e.role === 'mr' ? '#6ee7b7' : '#93c5fd' }}
+                          value={e.role || 'employee'}
+                          onChange={async (ev) => {
+                            const newRole = ev.target.value;
+                            try {
+                              await api.updateEmployee(e._id || e.id, { role: newRole });
+                              setEmployees(prev => prev.map(emp => (emp._id || emp.id) === (e._id || e.id) ? { ...emp, role: newRole } : emp));
+                              setAlert({ msg: `${e.name} is now ${newRole === 'mr' ? 'an MR' : 'an Employee'}`, type: 'success' });
+                            } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+                          }}>
+                          <option value="employee">👤 Employee</option>
+                          <option value="mr">🧑‍💼 MR</option>
+                        </select>
+                      </td>
                       <td className="px-5 py-3 text-slate-400">{e.department || '—'}</td>
                       <td className="px-5 py-3 text-slate-400">{e.designation || '—'}</td>
                       <td className="px-5 py-3 text-green-400 font-semibold">₹{(e.baseSalary || 0).toLocaleString()}</td>
                       <td className="px-5 py-3 text-slate-300">{e.travelDistance || 0} km</td>
+                      <td className="px-5 py-3 text-slate-300">{e.area || '—'}</td>
+                      <td className="px-5 py-3 text-slate-400 text-xs">{e.pincodes?.join(', ') || '—'}</td>
+                      <td className="px-5 py-3 text-slate-400">{e.mrId || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -502,6 +811,232 @@ export default function OwnerDashboard() {
 
         {/* Leaves */}
         {tab === 'leaves' && <OwnerLeaves selectedMonth={selectedMonth} />}
+
+        {/* Doctors */}
+        {tab === 'doctors' && (
+          <div>
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+              <h2 className="text-white font-bold text-lg">👨‍⚕️ Doctor Database</h2>
+              <button onClick={() => setShowDoctorForm(!showDoctorForm)}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white"
+                style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)' }}>
+                {showDoctorForm ? '✕ Cancel' : '+ Add Doctor'}
+              </button>
+            </div>
+            {showDoctorForm && (
+              <div className="rounded-2xl p-5 mb-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <h3 className="text-white font-semibold mb-4">Add New Doctor</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[['name', 'Doctor Name *'], ['hospital', 'Hospital *'], ['area', 'Area *'], ['pincode', 'Pincode *'], ['phone', 'Phone']].map(([field, label]) => (
+                    <div key={field}>
+                      <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1">{label}</label>
+                      <input className="w-full px-3 py-2 rounded-xl text-sm text-white border border-white/8 outline-none"
+                        style={{ background: 'rgba(255,255,255,0.04)' }}
+                        value={(doctorForm as any)[field]}
+                        onChange={e => setDoctorForm(f => ({ ...f, [field]: e.target.value }))} />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1">Type</label>
+                    <select className="w-full px-3 py-2 rounded-xl text-sm text-white border border-white/8 outline-none"
+                      style={{ background: 'rgba(255,255,255,0.04)' }}
+                      value={doctorForm.type}
+                      onChange={e => setDoctorForm(f => ({ ...f, type: e.target.value }))}>
+                      <option value="Regular">Regular</option>
+                      <option value="Specialist">Specialist</option>
+                      <option value="VIP">VIP</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1">Latitude (GPS)</label>
+                    <input type="number" step="any" className="w-full px-3 py-2 rounded-xl text-sm text-white border border-white/8 outline-none"
+                      style={{ background: 'rgba(255,255,255,0.04)' }}
+                      value={doctorForm.latitude}
+                      onChange={e => setDoctorForm(f => ({ ...f, latitude: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1">Longitude (GPS)</label>
+                    <input type="number" step="any" className="w-full px-3 py-2 rounded-xl text-sm text-white border border-white/8 outline-none"
+                      style={{ background: 'rgba(255,255,255,0.04)' }}
+                      value={doctorForm.longitude}
+                      onChange={e => setDoctorForm(f => ({ ...f, longitude: e.target.value }))} />
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!doctorForm.name || !doctorForm.hospital || !doctorForm.area || !doctorForm.pincode) {
+                      setAlert({ msg: 'Name, hospital, area, and pincode are required', type: 'error' }); return;
+                    }
+                    try {
+                      const doc = await api.addDoctor({
+                        ...doctorForm,
+                        latitude: doctorForm.latitude ? Number(doctorForm.latitude) : null,
+                        longitude: doctorForm.longitude ? Number(doctorForm.longitude) : null,
+                      });
+                      setDoctors(prev => [...prev, doc as any]);
+                      setDoctorForm({ name: '', hospital: '', area: '', pincode: '', type: 'Regular', phone: '', latitude: '', longitude: '' });
+                      setShowDoctorForm(false);
+                      setAlert({ msg: 'Doctor added successfully', type: 'success' });
+                    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+                  }}
+                  className="mt-4 px-6 py-2.5 rounded-xl text-sm font-bold text-white"
+                  style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+                  Save Doctor
+                </button>
+              </div>
+            )}
+            <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-400 text-xs border-b border-white/5">
+                    {['Name', 'Hospital', 'Area', 'Pincode', 'Type', 'Phone', 'GPS', 'Actions'].map(h => (
+                      <th key={h} className="text-left py-3 px-4">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {doctors.length === 0 ? (
+                    <tr><td colSpan={8} className="text-center py-8 text-slate-500">No doctors in database. Add one above.</td></tr>
+                  ) : doctors.map(doc => (
+                    <tr key={doc._id || doc.id} className="border-b border-white/5 hover:bg-white/2 transition-colors">
+                      <td className="py-3 px-4 text-white font-medium">Dr. {doc.name}</td>
+                      <td className="py-3 px-4 text-slate-300">{doc.hospital}</td>
+                      <td className="py-3 px-4 text-slate-400">{doc.area}</td>
+                      <td className="py-3 px-4 text-slate-400">{doc.pincode}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${doc.type === 'VIP' ? 'bg-yellow-500/15 text-yellow-300' : doc.type === 'Specialist' ? 'bg-purple-500/15 text-purple-300' : 'bg-slate-500/15 text-slate-400'}`}>
+                          {doc.type}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-400">{doc.phone || '—'}</td>
+                      <td className="py-3 px-4 text-slate-500 text-xs">
+                        {doc.latitude ? `${doc.latitude.toFixed(4)}, ${doc.longitude?.toFixed(4)}` : '—'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <button onClick={async () => {
+                          if (!confirm(`Delete Dr. ${doc.name}?`)) return;
+                          try {
+                            await api.deleteDoctor(doc._id || doc.id);
+                            setDoctors(prev => prev.filter(d => (d._id || d.id) !== (doc._id || doc.id)));
+                            setAlert({ msg: 'Doctor removed', type: 'success' });
+                          } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+                        }} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Call Reports */}
+        {tab === 'callreports' && (
+          <div className="space-y-6">
+            {/* Progress summary */}
+            <OwnerProgressTable selectedMonth={selectedMonth} />
+
+            <div>
+            <h2 className="text-white font-bold text-lg mb-5">📋 All Call Reports — {selectedMonth}</h2>
+            <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              {allCallReports.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">No call reports for {selectedMonth}</div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {allCallReports.map(r => (
+                    <div key={r._id || r.id} className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-white font-medium text-sm">{r.employeeName}</span>
+                          <span className="text-slate-500 text-xs">→</span>
+                          <span className="text-blue-300 text-sm">Dr. {r.doctorName}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${r.doctorType === 'VIP' ? 'bg-yellow-500/15 text-yellow-300' : r.doctorType === 'Specialist' ? 'bg-purple-500/15 text-purple-300' : 'bg-slate-500/15 text-slate-400'}`}>
+                            {r.doctorType}
+                          </span>
+                          {r.verifiedByMR && <span className="text-xs text-green-400">✅ MR Verified</span>}
+                        </div>
+                        <div className="text-slate-400 text-xs mt-1">🏥 {r.hospitalName} · 📍 {r.area || 'N/A'} · {r.date}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${r.locationValid ? 'bg-green-500/15 text-green-300' : 'bg-red-500/15 text-red-300'}`}>
+                            {r.locationValid ? '📍 Location Valid' : '⚠️ Location Invalid'}
+                          </span>
+                          {r.distanceFromHospital != null && <span className="text-xs text-slate-500">{r.distanceFromHospital}m</span>}
+                        </div>
+                      </div>
+                      {r.photo && <img src={r.photo} alt="proof" className="w-14 h-14 rounded-xl object-cover border border-white/10" />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stock Requests */}
+        {tab === 'stockrequests' && (
+          <div>
+            <h2 className="text-white font-bold text-lg mb-5">📦 Stock Requests — {selectedMonth}</h2>
+            <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              {allStockRequests.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">No stock requests for {selectedMonth}</div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {allStockRequests.map(s => (
+                    <div key={s._id || s.id} className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-white font-medium text-sm">{s.employeeName}</span>
+                          <span className="text-slate-500 text-xs">·</span>
+                          <span className="text-blue-300 text-sm">{s.productName}</span>
+                          <span className="text-slate-400 text-xs">×{s.quantity}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            s.status === 'pending' ? 'bg-yellow-500/15 text-yellow-300' :
+                            s.status === 'approved_mr' ? 'bg-blue-500/15 text-blue-300' :
+                            s.status === 'approved_owner' ? 'bg-green-500/15 text-green-300' :
+                            'bg-red-500/15 text-red-300'
+                          }`}>{s.status.replace('_', ' ').toUpperCase()}</span>
+                        </div>
+                        <div className="text-slate-400 text-xs mt-1">🏥 {s.hospitalName} · Dr. {s.doctorName} · {s.date}</div>
+                        {s.returned && <div className="text-orange-300 text-xs mt-1">↩ {s.returnedQuantity} returned</div>}
+                        {s.damaged && <div className="text-red-300 text-xs mt-1">💥 {s.damagedQuantity} damaged</div>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {s.photo && <img src={s.photo} alt="proof" className="w-14 h-14 rounded-xl object-cover border border-white/10" />}
+                        {s.status === 'pending' && (
+                          <>
+                            <button onClick={async () => {
+                              try {
+                                await api.approveStockRequest(s._id || s.id);
+                                setAllStockRequests(prev => prev.map(r => (r._id || r.id) === (s._id || s.id) ? { ...r, status: 'approved_owner' } : r));
+                                setAlert({ msg: 'Stock approved', type: 'success' });
+                              } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+                            }} className="px-3 py-1 rounded-lg text-xs font-medium text-white"
+                              style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+                              ✅ Approve
+                            </button>
+                            <button onClick={async () => {
+                              const reason = prompt('Rejection reason:');
+                              if (!reason) return;
+                              try {
+                                await api.rejectStockRequest(s._id || s.id, reason);
+                                setAllStockRequests(prev => prev.map(r => (r._id || r.id) === (s._id || s.id) ? { ...r, status: 'rejected' } : r));
+                                setAlert({ msg: 'Stock rejected', type: 'success' });
+                              } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+                            }} className="px-3 py-1 rounded-lg text-xs font-medium text-red-300 border border-red-500/30"
+                              style={{ background: 'rgba(239,68,68,0.08)' }}>
+                              ❌ Reject
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Excel Sheet */}
         {tab === 'excel' && (
@@ -848,6 +1383,90 @@ function OwnerIssues({ allIssues, setAllIssues }: { allIssues: any[]; setAllIssu
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Owner Progress Table ───────────────────────────────────────────────────
+function OwnerProgressTable({ selectedMonth }: { selectedMonth: string }) {
+  const [progress, setProgress] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [mrFilter, setMrFilter] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    api.getAllProgress(selectedMonth, mrFilter || undefined, areaFilter || undefined)
+      .then((d: any) => setProgress(Array.isArray(d) ? d : []))
+      .catch(() => setProgress([]))
+      .finally(() => setLoading(false));
+  }, [selectedMonth, mrFilter, areaFilter]);
+
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+
+  return (
+    <div className="rounded-2xl p-6" style={cs}>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+        <div>
+          <h3 className="text-white font-semibold">🎯 Doctor Visit Progress — {selectedMonth}</h3>
+          <p className="text-slate-500 text-xs mt-0.5">Only GPS-validated + photo-verified visits counted</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <input placeholder="Filter by MR ID" value={mrFilter} onChange={e => setMrFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 outline-none w-32"
+            style={{ background: 'rgba(255,255,255,0.05)' }} />
+          <input placeholder="Filter by Area" value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 outline-none w-32"
+            style={{ background: 'rgba(255,255,255,0.05)' }} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500 text-sm">Loading...</div>
+      ) : progress.length === 0 ? (
+        <div className="text-center py-8 text-slate-500 text-sm">No employee data found.</div>
+      ) : (
+        <div className="space-y-3">
+          {progress.map(p => {
+            const pct = p.target > 0 ? Math.min(100, Math.round((p.visited / p.target) * 100)) : 0;
+            return (
+              <div key={p.employeeId} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <span className="text-white text-sm font-medium">{p.employeeName}</span>
+                      <span className="text-slate-500 text-xs ml-2">{p.employeeId}</span>
+                    </div>
+                    {p.area && <span className="text-xs text-slate-500 px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.05)' }}>📍 {p.area}</span>}
+                    {p.mrId && <span className="text-xs text-slate-500">MR: {p.mrId}</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-white font-bold text-sm">
+                      {p.visited}
+                      {p.target > 0 && <span className="text-slate-400 font-normal"> / {p.target}</span>}
+                    </span>
+                    {p.target > 0 && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pct >= 100 ? 'bg-green-500/20 text-green-300' : pct >= 60 ? 'bg-blue-500/20 text-blue-300' : pct >= 30 ? 'bg-yellow-500/20 text-yellow-300' : 'bg-red-500/20 text-red-300'}`}>
+                        {pct}%
+                      </span>
+                    )}
+                    {p.target === 0 && <span className="text-xs text-slate-600">No target</span>}
+                  </div>
+                </div>
+                {p.target > 0 && (
+                  <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${pct}%`,
+                        background: pct >= 100 ? 'linear-gradient(90deg,#059669,#10b981)' : pct >= 60 ? 'linear-gradient(90deg,#1d4ed8,#3b82f6)' : pct >= 30 ? 'linear-gradient(90deg,#d97706,#f59e0b)' : 'linear-gradient(90deg,#dc2626,#ef4444)',
+                      }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

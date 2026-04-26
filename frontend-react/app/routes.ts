@@ -9,4 +9,7 @@ export default [
   route("salary", "routes/salary.tsx"),
   route("attendance", "routes/attendance.tsx"),
   route("owner", "routes/owner-dashboard.tsx"),
+  route("mr-dashboard", "routes/mr-dashboard.tsx"),
+  route("mr-login", "routes/mr-login.tsx"),
+  route("call-report", "routes/call-report.tsx"),
 ] satisfies RouteConfig;

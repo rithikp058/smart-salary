@@ -6,6 +6,10 @@ export const MOCK_USER = {
   designation: 'Software Engineer',
   baseSalary: 50000,
   travelDistance: 60,
+  role: 'employee',
+  area: 'KPHB',
+  pincodes: ['500072', '500073'],
+  mrId: '',
   phone: '+91 98765 43210',
   bankDetails: { bankName: 'State Bank of India', accountNo: '1234567890', ifsc: 'SBIN0001234' },
 };
@@ -37,6 +41,11 @@ export function isLoggedIn() {
 
 export function isOwner() {
   return localStorage.getItem('ssp_role') === 'owner';
+}
+
+export function isMR() {
+  const user = getUser();
+  return user?.role === 'mr';
 }
 
 export function getOwnerToken() {

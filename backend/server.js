@@ -11,6 +11,11 @@ const ownerRoutes = require('./routes/owner');
 const issueRoutes = require('./routes/issues');
 const holidayRoutes = require('./routes/holidays');
 const leaveRoutes = require('./routes/leaves');
+const doctorRoutes = require('./routes/doctors');
+const callReportRoutes = require('./routes/callreports');
+const stockRequestRoutes = require('./routes/stockrequests');
+const targetRoutes = require('./routes/targets');
+const placesRoutes = require('./routes/places');
 
 const app = express();
 app.use(cors());
@@ -24,6 +29,11 @@ app.use('/api/owner', ownerRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/leaves', leaveRoutes);
+app.use('/api/doctors', doctorRoutes);
+app.use('/api/callreports', callReportRoutes);
+app.use('/api/stockrequests', stockRequestRoutes);
+app.use('/api/targets', targetRoutes);
+app.use('/api/places', placesRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
 
