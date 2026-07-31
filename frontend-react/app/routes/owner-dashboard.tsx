@@ -20,7 +20,12 @@ export default function OwnerDashboard() {
   const [allIssues, setAllIssues] = useState<any[]>([]);
   const [resolveNote, setResolveNote] = useState<Record<string, string>>({});
 
-  // ── Excel Sheet State ──────────────────────────────────────────────────
+  // ── Pharma State ───────────────────────────────────────────────────────
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [allCallReports, setAllCallReports] = useState<any[]>([]);
+  const [allStockRequests, setAllStockRequests] = useState<any[]>([]);
+  const [doctorForm, setDoctorForm] = useState({ name: '', hospital: '', area: '', pincode: '', type: 'Regular', phone: '', latitude: '', longitude: '' });
+  const [showDoctorForm, setShowDoctorForm] = useState(false);
   type ExcelRow = {
     id: string;
     acNo: string; name: string; joiningDate: string; lastIncrDate: string;
@@ -158,6 +163,9 @@ export default function OwnerDashboard() {
     if (!isOwner()) { navigate('/owner-login'); return; }
     loadAll();
     api.getAllIssues().then((d: any) => setAllIssues(d)).catch(() => {});
+    api.getDoctors().then((d: any) => setDoctors(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getAllCallReports(selectedMonth).then((d: any) => setAllCallReports(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getAllStockRequests(selectedMonth).then((d: any) => setAllStockRequests(Array.isArray(d) ? d : [])).catch(() => {});
   }, [selectedMonth]);
 
   async function loadAll() {
@@ -303,6 +311,9 @@ export default function OwnerDashboard() {
           </div>
         )}
 
+        {/* Global Search */}
+        <GlobalSearch employees={employees} />
+
         {/* Tabs */}
         <div className="flex gap-2 mb-8 flex-wrap p-1 rounded-2xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
           {tabs.map(([t, label]) => (
@@ -334,6 +345,25 @@ export default function OwnerDashboard() {
                 </div>
               ))}
             </div>
+
+            {/* Quick access cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              <button onClick={() => setTab('employees')}
+                className="rounded-2xl p-5 text-left transition-all hover:-translate-y-1 group"
+                style={{ background: 'rgba(29,78,216,0.08)', border: '1px solid rgba(29,78,216,0.2)' }}>
+                <div className="text-2xl mb-2">👥</div>
+                <div className="text-white font-bold">View All Employees</div>
+                <div className="text-slate-400 text-xs mt-1">{employees.filter(e => e.role !== 'mr').length} field employees · assign roles, area, MR</div>
+              </button>
+              <button onClick={() => setTab('employees')}
+                className="rounded-2xl p-5 text-left transition-all hover:-translate-y-1 group"
+                style={{ background: 'rgba(5,150,105,0.08)', border: '1px solid rgba(5,150,105,0.2)' }}>
+                <div className="text-2xl mb-2">🧑‍💼</div>
+                <div className="text-white font-bold">View All MRs</div>
+                <div className="text-slate-400 text-xs mt-1">{employees.filter(e => e.role === 'mr').length} medical representatives</div>
+              </button>
+            </div>
+
             <div className="flex gap-3 flex-wrap">
               <button onClick={exportExcel}
                 className="px-5 py-2.5 rounded-xl font-bold text-white text-sm transition-all hover:scale-[1.02]"
@@ -836,6 +866,90 @@ function OwnerIssues({ allIssues, setAllIssues }: { allIssues: any[]; setAllIssu
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Owner Progress Table ───────────────────────────────────────────────────
+function OwnerProgressTable({ selectedMonth }: { selectedMonth: string }) {
+  const [progress, setProgress] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [mrFilter, setMrFilter] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    api.getAllProgress(selectedMonth, mrFilter || undefined, areaFilter || undefined)
+      .then((d: any) => setProgress(Array.isArray(d) ? d : []))
+      .catch(() => setProgress([]))
+      .finally(() => setLoading(false));
+  }, [selectedMonth, mrFilter, areaFilter]);
+
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+
+  return (
+    <div className="rounded-2xl p-6" style={cs}>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+        <div>
+          <h3 className="text-white font-semibold">🎯 Doctor Visit Progress — {selectedMonth}</h3>
+          <p className="text-slate-500 text-xs mt-0.5">Only GPS-validated + photo-verified visits counted</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <input placeholder="Filter by MR ID" value={mrFilter} onChange={e => setMrFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 outline-none w-32"
+            style={{ background: 'rgba(255,255,255,0.05)' }} />
+          <input placeholder="Filter by Area" value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 outline-none w-32"
+            style={{ background: 'rgba(255,255,255,0.05)' }} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500 text-sm">Loading...</div>
+      ) : progress.length === 0 ? (
+        <div className="text-center py-8 text-slate-500 text-sm">No employee data found.</div>
+      ) : (
+        <div className="space-y-3">
+          {progress.map(p => {
+            const pct = p.target > 0 ? Math.min(100, Math.round((p.visited / p.target) * 100)) : 0;
+            return (
+              <div key={p.employeeId} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <span className="text-white text-sm font-medium">{p.employeeName}</span>
+                      <span className="text-slate-500 text-xs ml-2">{p.employeeId}</span>
+                    </div>
+                    {p.area && <span className="text-xs text-slate-500 px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.05)' }}>📍 {p.area}</span>}
+                    {p.mrId && <span className="text-xs text-slate-500">MR: {p.mrId}</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-white font-bold text-sm">
+                      {p.visited}
+                      {p.target > 0 && <span className="text-slate-400 font-normal"> / {p.target}</span>}
+                    </span>
+                    {p.target > 0 && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pct >= 100 ? 'bg-green-500/20 text-green-300' : pct >= 60 ? 'bg-blue-500/20 text-blue-300' : pct >= 30 ? 'bg-yellow-500/20 text-yellow-300' : 'bg-red-500/20 text-red-300'}`}>
+                        {pct}%
+                      </span>
+                    )}
+                    {p.target === 0 && <span className="text-xs text-slate-600">No target</span>}
+                  </div>
+                </div>
+                {p.target > 0 && (
+                  <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${pct}%`,
+                        background: pct >= 100 ? 'linear-gradient(90deg,#059669,#10b981)' : pct >= 60 ? 'linear-gradient(90deg,#1d4ed8,#3b82f6)' : pct >= 30 ? 'linear-gradient(90deg,#d97706,#f59e0b)' : 'linear-gradient(90deg,#dc2626,#ef4444)',
+                      }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

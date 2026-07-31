@@ -11,6 +11,13 @@ const employeeSchema = new mongoose.Schema({
   designation: { type: String, default: '' },
   baseSalary: { type: Number, default: 0 },
   travelDistance: { type: Number, default: 0 }, // km from home to office
+
+  // Pharma field management
+  role: { type: String, enum: ['employee', 'mr'], default: 'employee' },
+  area: { type: String, default: '' },           // Assigned area e.g. "KPHB"
+  pincodes: [{ type: String }],                  // Allowed pincodes
+  mrId: { type: String, default: '' },           // MR's employeeId who manages this employee
+
   bankDetails: {
     accountNo: { type: String, default: '' },
     ifsc: { type: String, default: '' },
