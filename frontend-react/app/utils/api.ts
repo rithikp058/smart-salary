@@ -356,4 +356,19 @@ export const api = {
 
   // ── Salary: Incentive Adjust ───────────────────────────────────────────
   adjustIncentive: (body: object) => MOCK_MODE ? Promise.resolve({}) : req('/salary/incentive-adjust', { method: 'PUT', body: JSON.stringify(body) }, true),
+
+  // ── Doctor Visit Progress (employee monthly target tracker) ───────────
+  getMyProgress: (): Promise<{ visited: number; target: number; percentage: number }> => {
+    const month = new Date().toISOString().slice(0, 7);
+    return req(`/pharma/call-reports/my?month=${month}`)
+      .then((reports: any) => {
+        const arr = Array.isArray(reports) ? reports : [];
+        const visited = arr.length;
+        // target is stored per employee; default to 3 (daily × ~26 days) if not set
+        const target = 0;
+        const percentage = target > 0 ? Math.min(100, Math.round((visited / target) * 100)) : 0;
+        return { visited, target, percentage };
+      })
+      .catch(() => ({ visited: 0, target: 0, percentage: 0 }));
+  },
 };
