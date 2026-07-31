@@ -364,7 +364,6 @@ export const api = {
       .then((reports: any) => {
         const arr = Array.isArray(reports) ? reports : [];
         const visited = arr.length;
-        // target is stored per employee; default to 3 (daily × ~26 days) if not set
         const target = 0;
         const percentage = target > 0 ? Math.min(100, Math.round((visited / target) * 100)) : 0;
         return { visited, target, percentage };

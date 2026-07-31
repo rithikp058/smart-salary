@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { api } from '../utils/api';
 import { isOwner, clearSession } from '../utils/auth';
 import LocationSearchInput, { type LocationResult } from '../components/LocationSearchInput';
+import GlobalSearch from '../components/GlobalSearch';
 
 type Tab = 'overview' | 'employees' | 'attendance' | 'salaries' | 'deductions' | 'issues' | 'excel' | 'holidays' | 'leaves' | 'pharma' | 'analytics' | 'mrs';
 
@@ -164,8 +165,9 @@ export default function OwnerDashboard() {
     loadAll();
     api.getAllIssues().then((d: any) => setAllIssues(d)).catch(() => {});
     api.getDoctors().then((d: any) => setDoctors(Array.isArray(d) ? d : [])).catch(() => {});
-    api.getAllCallReports(selectedMonth).then((d: any) => setAllCallReports(Array.isArray(d) ? d : [])).catch(() => {});
-    api.getAllStockRequests(selectedMonth).then((d: any) => setAllStockRequests(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getAllCallReports({ month: selectedMonth }).then((d: any) => setAllCallReports(Array.isArray(d) ? d : [])).catch(() => {});
+    api.getAllStockRequests({ month: selectedMonth }).then((d: any) => setAllStockRequests(Array.isArray(d) ? d : []))
+      .catch(() => {});
   }, [selectedMonth]);
 
   async function loadAll() {
@@ -879,8 +881,8 @@ function OwnerProgressTable({ selectedMonth }: { selectedMonth: string }) {
 
   useEffect(() => {
     setLoading(true);
-    api.getAllProgress(selectedMonth, mrFilter || undefined, areaFilter || undefined)
-      .then((d: any) => setProgress(Array.isArray(d) ? d : []))
+    api.getAnalytics(selectedMonth)
+      .then((d: any) => setProgress(Array.isArray(d?.empCallStats) ? d.empCallStats : []))
       .catch(() => setProgress([]))
       .finally(() => setLoading(false));
   }, [selectedMonth, mrFilter, areaFilter]);
