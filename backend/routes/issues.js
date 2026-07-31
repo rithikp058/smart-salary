@@ -1,109 +1,83 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const Issue = require('../models/Issue');
 const Employee = require('../models/Employee');
-const authMiddleware = require('../middleware/auth');
-const adminMiddleware = require('../middleware/admin');
+const auth = require('../middleware/auth');
+const admin = require('../middleware/admin');
 
-// POST /api/issues — employee opens a new thread
-router.post('/', authMiddleware, async (req, res) => {
+// POST /api/issues (employee raises issue)
+router.post('/', auth, async (req, res) => {
   try {
-    const employee = await Employee.findById(req.user.id);
     const { month, title, message } = req.body;
-    if (!month || !message) return res.status(400).json({ message: 'Month and message required' });
-
-    const issue = await Issue.create({
-      employeeId: employee.employeeId,
-      employeeName: employee.name,
-      month,
-      title: title || `Issue for ${month}`,
-      messages: [{ sender: 'employee', senderName: employee.name, text: message, attachments: [] }],
+    const emp = await Employee.findOne({ employeeId: req.user.employeeId });
+    const issue = new Issue({
+      employeeId: req.user.employeeId,
+      employeeName: emp?.name || req.user.employeeId,
+      month, title,
+      messages: [{ sender: 'employee', senderName: emp?.name || req.user.employeeId, text: message }]
     });
-
-    employee.notifications.push({ message: `📝 Issue "${issue.title}" submitted for ${month}.` });
-    await employee.save();
+    await issue.save();
     res.status(201).json(issue);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST /api/issues/:id/reply — employee or owner adds a message
-router.post('/:id/reply', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ message: 'No token' });
-
-  let decoded;
-  try { decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'fallback_secret'); }
-  catch { return res.status(401).json({ message: 'Invalid token' }); }
-
+// GET /api/issues/my (employee)
+router.get('/my', auth, async (req, res) => {
   try {
+    const issues = await Issue.find({ employeeId: req.user.employeeId }).sort({ createdAt: -1 });
+    res.json(issues);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/issues/all (owner)
+router.get('/all', admin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const query = status ? { status } : {};
+    const issues = await Issue.find(query).sort({ createdAt: -1 });
+    res.json(issues);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/issues/:id/reply
+router.post('/:id/reply', async (req, res) => {
+  try {
+    const { text, attachments } = req.body;
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
+    const isOwner = decoded.isOwner;
+
     const issue = await Issue.findById(req.params.id);
     if (!issue) return res.status(404).json({ message: 'Issue not found' });
 
-    const { text, attachments } = req.body;
-    if (!text && (!attachments?.length)) return res.status(400).json({ message: 'Message or attachment required' });
-
-    const isOwner = !!decoded.isOwner;
     let senderName = 'Owner';
     if (!isOwner) {
-      const emp = await Employee.findById(decoded.id);
-      senderName = emp ? emp.name : 'Employee';
+      const emp = await Employee.findOne({ employeeId: decoded.employeeId });
+      senderName = emp?.name || decoded.employeeId;
     }
 
     issue.messages.push({ sender: isOwner ? 'owner' : 'employee', senderName, text: text || '', attachments: attachments || [] });
-    issue.status = isOwner ? 'replied' : (issue.status === 'replied' ? 'pending' : issue.status);
+    if (isOwner) issue.status = 'replied';
     await issue.save();
-
-    if (isOwner) {
-      const emp = await Employee.findOne({ employeeId: issue.employeeId });
-      if (emp) { emp.notifications.push({ message: `💬 Owner replied to your issue "${issue.title}"` }); await emp.save(); }
-    }
-
     res.json(issue);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// PUT /api/issues/:id/status — owner changes status
-router.put('/:id/status', adminMiddleware, async (req, res) => {
+// PUT /api/issues/:id/status (owner)
+router.put('/:id/status', admin, async (req, res) => {
   try {
-    const issue = await Issue.findByIdAndUpdate(req.params.id, { status: req.body.status || 'resolved' }, { new: true });
-    if (!issue) return res.status(404).json({ message: 'Issue not found' });
-    res.json(issue);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// GET /api/issues/my
-router.get('/my', authMiddleware, async (req, res) => {
-  try {
-    const employee = await Employee.findById(req.user.id);
-    const issues = await Issue.find({ employeeId: employee.employeeId }).sort({ createdAt: -1 });
-    res.json(issues);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// GET /api/issues/all — owner
-router.get('/all', adminMiddleware, async (req, res) => {
-  try {
-    const filter = req.query.status ? { status: req.query.status } : {};
-    const issues = await Issue.find(filter).sort({ createdAt: -1 });
-    res.json(issues);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// GET /api/issues/:id
-router.get('/:id', async (req, res) => {
-  try {
-    const issue = await Issue.findById(req.params.id);
+    const { status } = req.body;
+    const issue = await Issue.findByIdAndUpdate(req.params.id, { status }, { new: true });
     if (!issue) return res.status(404).json({ message: 'Issue not found' });
     res.json(issue);
   } catch (err) {

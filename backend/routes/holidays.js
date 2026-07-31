@@ -1,26 +1,28 @@
 const express = require('express');
 const router = express.Router();
 const Holiday = require('../models/Holiday');
-const adminMiddleware = require('../middleware/admin');
-const authMiddleware = require('../middleware/auth');
+const auth = require('../middleware/auth');
+const admin = require('../middleware/admin');
 
-// GET /api/holidays?month=YYYY-MM
-router.get('/', authMiddleware, async (req, res) => {
+// GET /api/holidays
+router.get('/', async (req, res) => {
   try {
-    const filter = req.query.month ? { date: { $regex: `^${req.query.month}` } } : {};
-    const holidays = await Holiday.find(filter).sort({ date: 1 });
+    const { month } = req.query;
+    const query = month ? { date: { $regex: `^${month}` } } : {};
+    const holidays = await Holiday.find(query).sort({ date: 1 });
     res.json(holidays);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST /api/holidays
-router.post('/', adminMiddleware, async (req, res) => {
+// POST /api/holidays (owner)
+router.post('/', admin, async (req, res) => {
   try {
     const { date, reason } = req.body;
-    if (!date || !reason) return res.status(400).json({ message: 'Date and reason required' });
-    const holiday = await Holiday.create({ date, reason });
+    if (!date || !reason) return res.status(400).json({ message: 'Date and reason are required' });
+    const holiday = new Holiday({ date, reason });
+    await holiday.save();
     res.status(201).json(holiday);
   } catch (err) {
     if (err.code === 11000) return res.status(409).json({ message: 'Holiday already exists for this date' });
@@ -28,8 +30,8 @@ router.post('/', adminMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/holidays/:id
-router.put('/:id', adminMiddleware, async (req, res) => {
+// PUT /api/holidays/:id (owner)
+router.put('/:id', admin, async (req, res) => {
   try {
     const holiday = await Holiday.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!holiday) return res.status(404).json({ message: 'Holiday not found' });
@@ -39,11 +41,10 @@ router.put('/:id', adminMiddleware, async (req, res) => {
   }
 });
 
-// DELETE /api/holidays/:id
-router.delete('/:id', adminMiddleware, async (req, res) => {
+// DELETE /api/holidays/:id (owner)
+router.delete('/:id', admin, async (req, res) => {
   try {
-    const holiday = await Holiday.findByIdAndDelete(req.params.id);
-    if (!holiday) return res.status(404).json({ message: 'Holiday not found' });
+    await Holiday.findByIdAndDelete(req.params.id);
     res.json({ message: 'Holiday deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });

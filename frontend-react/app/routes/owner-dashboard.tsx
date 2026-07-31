@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router';
 import * as XLSX from 'xlsx';
 import { api } from '../utils/api';
 import { isOwner, clearSession } from '../utils/auth';
+import LocationSearchInput, { type LocationResult } from '../components/LocationSearchInput';
 
-type Tab = 'overview' | 'employees' | 'attendance' | 'salaries' | 'deductions' | 'issues' | 'excel' | 'holidays' | 'leaves';
+type Tab = 'overview' | 'employees' | 'attendance' | 'salaries' | 'deductions' | 'issues' | 'excel' | 'holidays' | 'leaves' | 'pharma' | 'analytics' | 'mrs';
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -257,6 +258,9 @@ export default function OwnerDashboard() {
     ['excel', '📋 Excel Sheet'],
     ['holidays', '🎉 Holidays'],
     ['leaves', '🏖️ Leaves'],
+    ['pharma', '💊 Pharma'],
+    ['analytics', '📈 Analytics'],
+    ['mrs', '🧑‍💼 MR Management'],
   ];
 
   return (
@@ -342,32 +346,7 @@ export default function OwnerDashboard() {
 
         {/* Employees */}
         {tab === 'employees' && (
-          <div className="rounded-2xl overflow-hidden" style={cardStyle}>
-            <div className="p-5 border-b border-white/5 font-bold text-white">👥 All Employees</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                    {['ID', 'Name', 'Department', 'Designation', 'Base Salary', 'Travel (km)'].map(h => (
-                      <th key={h} className="text-left px-5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {employees.map((e, i) => (
-                    <tr key={i} className="border-t border-white/4 hover:bg-white/2">
-                      <td className="px-5 py-3 text-blue-400 font-semibold">{e.employeeId}</td>
-                      <td className="px-5 py-3 text-white">{e.name}</td>
-                      <td className="px-5 py-3 text-slate-400">{e.department || '—'}</td>
-                      <td className="px-5 py-3 text-slate-400">{e.designation || '—'}</td>
-                      <td className="px-5 py-3 text-green-400 font-semibold">₹{(e.baseSalary || 0).toLocaleString()}</td>
-                      <td className="px-5 py-3 text-slate-300">{e.travelDistance || 0} km</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <OwnerEmployees employees={employees} onRefresh={loadAll} setAlert={setAlert} />
         )}
 
         {/* Attendance */}
@@ -502,6 +481,15 @@ export default function OwnerDashboard() {
 
         {/* Leaves */}
         {tab === 'leaves' && <OwnerLeaves selectedMonth={selectedMonth} />}
+
+        {/* Pharma */}
+        {tab === 'pharma' && <OwnerPharma selectedMonth={selectedMonth} />}
+
+        {/* Analytics */}
+        {tab === 'analytics' && <OwnerAnalytics selectedMonth={selectedMonth} />}
+
+        {/* MR Management */}
+        {tab === 'mrs' && <OwnerMRManagement />}
 
         {/* Excel Sheet */}
         {tab === 'excel' && (
@@ -1089,6 +1077,980 @@ function OwnerLeaves({ selectedMonth }: { selectedMonth: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+// ── Owner Pharma Tab ───────────────────────────────────────────────────────
+function OwnerPharma({ selectedMonth }: { selectedMonth: string }) {
+  const [stockTab, setStockTab] = useState<'stock' | 'calls' | 'doctors' | 'incentive'>('stock');
+  const [stockRequests, setStockRequests] = useState<any[]>([]);
+  const [callReports, setCallReports] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [alert, setAlert] = useState<{ msg: string; type: string } | null>(null);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [incForm, setIncForm] = useState<Record<string, any>>({});
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+
+  useEffect(() => {
+    api.getDoctors().then((d: any) => setDoctors(d)).catch(() => {});
+    api.getEmployees().then((d: any) => setEmployees(d)).catch(() => {});
+    loadStockRequests();
+    loadCallReports();
+  }, [selectedMonth, filterStatus]);
+
+  async function loadStockRequests() {
+    try {
+      const d: any = await api.getAllStockRequests({ month: selectedMonth, status: filterStatus !== 'all' ? filterStatus : undefined });
+      setStockRequests(d);
+    } catch {}
+  }
+
+  async function loadCallReports() {
+    try { const d: any = await api.getAllCallReports({ month: selectedMonth }); setCallReports(d); } catch {}
+  }
+
+  async function approveStock(id: string) {
+    try {
+      await api.approveStockRequest(id, { movementType: 'godown_to_shop', destination: 'Medical Shop', approvalNote: 'Approved by Owner' });
+      setAlert({ msg: '✅ Stock approved → moved Godown to Shop', type: 'success' });
+      loadStockRequests();
+    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+    setTimeout(() => setAlert(null), 3000);
+  }
+
+  async function rejectStock(id: string) {
+    try { await api.rejectStockRequest(id, { approvalNote: 'Rejected by Owner' }); setAlert({ msg: 'Request rejected', type: 'success' }); loadStockRequests(); }
+    catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+    setTimeout(() => setAlert(null), 3000);
+  }
+
+  async function saveIncentive(employeeId: string) {
+    const f = incForm[employeeId] || {};
+    try {
+      await api.adjustIncentive({ employeeId, month: selectedMonth, incentiveAdjustment: Number(f.adj || 0), stockReturns: Number(f.returns || 0), incentiveStatus: f.status || 'adjusted' });
+      setAlert({ msg: '✅ Incentive adjusted', type: 'success' });
+    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+    setTimeout(() => setAlert(null), 3000);
+  }
+
+  const statusColor: Record<string, string> = { pending: 'text-yellow-400', mr_approved: 'text-blue-400', owner_approved: 'text-green-400', rejected: 'text-red-400' };
+  const statusBg: Record<string, string> = { pending: 'rgba(234,179,8,0.1)', mr_approved: 'rgba(59,130,246,0.1)', owner_approved: 'rgba(34,197,94,0.1)', rejected: 'rgba(239,68,68,0.1)' };
+  const inputCls = "px-2 py-1.5 rounded-lg text-xs text-white border border-white/8 outline-none w-24";
+  const inputStyle = { background: 'rgba(255,255,255,0.04)' };
+
+  return (
+    <div>
+      {alert && (
+        <div className={`p-3 rounded-xl text-sm mb-4 flex items-center gap-2 ${alert.type === 'error' ? 'text-red-300 border border-red-500/20' : 'text-green-300 border border-green-500/20'}`}
+          style={{ background: alert.type === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)' }}
+          onClick={() => setAlert(null)}>
+          {alert.type === 'error' ? '⚠️' : '✅'} {alert.msg}
+        </div>
+      )}
+      {/* Sub-tabs */}
+      <div className="flex gap-2 mb-5 flex-wrap p-1 rounded-xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+        {([['stock', '📦 Stock'], ['calls', '📞 Calls'], ['doctors', '🏥 Doctors'], ['incentive', '💰 Incentives']] as const).map(([t, l]) => (
+          <button key={t} onClick={() => setStockTab(t)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${stockTab === t ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
+            style={stockTab === t ? { background: 'linear-gradient(135deg, #7c3aed, #a855f7)' } : {}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Stock Requests */}
+      {stockTab === 'stock' && (
+        <div>
+          <div className="flex gap-2 mb-3 flex-wrap">
+            {['all', 'pending', 'mr_approved', 'owner_approved', 'rejected'].map(f => (
+              <button key={f} onClick={() => setFilterStatus(f)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${filterStatus === f ? 'text-white' : 'text-slate-500'}`}
+                style={filterStatus === f ? { background: 'linear-gradient(135deg, #7c3aed, #a855f7)' } : { background: 'rgba(255,255,255,0.04)' }}>
+                {f.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+          <div className="rounded-2xl overflow-hidden" style={cs}>
+            <div className="p-4 border-b border-white/5 font-bold text-white text-sm">📦 Stock Requests — {selectedMonth}</div>
+            <div className="divide-y divide-white/4">
+              {stockRequests.length === 0 ? <div className="text-center py-10 text-slate-600">No requests</div> :
+                stockRequests.map((r: any, i: number) => (
+                  <div key={i} className="px-5 py-3 hover:bg-white/2 transition-colors">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-white font-semibold text-sm">{r.productName}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusColor[r.status] || 'text-slate-400'}`} style={{ background: statusBg[r.status] || 'rgba(255,255,255,0.05)' }}>
+                            {r.status?.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <div className="text-slate-500 text-xs">{r.employeeName} → {r.doctorName} · {r.hospitalName} · Qty: {r.quantity}</div>
+                        {r.returnStatus && r.returnStatus !== 'none' && <div className="text-yellow-400 text-xs mt-0.5">↩ Return: {r.returnStatus} ({r.returnQuantity})</div>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {r.photo && <img src={r.photo} className="w-10 h-10 rounded-lg object-cover cursor-pointer border border-white/10" onClick={() => window.open(r.photo)} />}
+                        {(r.status === 'pending' || r.status === 'mr_approved') && (
+                          <>
+                            <button onClick={() => approveStock(r.id || r._id)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold text-green-400 hover:text-white transition-all"
+                              style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}>✅ Approve</button>
+                            <button onClick={() => rejectStock(r.id || r._id)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 hover:text-white transition-all"
+                              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>❌ Reject</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Call Reports */}
+      {stockTab === 'calls' && (
+        <div className="rounded-2xl overflow-hidden" style={cs}>
+          <div className="p-4 border-b border-white/5 font-bold text-white text-sm">📞 All Call Reports — {selectedMonth} ({callReports.length})</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  {['Employee', 'Doctor', 'Hospital', 'Type', 'Area', 'Date', 'GPS', 'Photo'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {callReports.length === 0 ? (
+                  <tr><td colSpan={8} className="text-center py-10 text-slate-600">No call reports</td></tr>
+                ) : callReports.map((r: any, i: number) => (
+                  <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                    <td className="px-4 py-2.5">
+                      <div className="text-white font-semibold text-xs">{r.employeeName}</div>
+                      <div className="text-slate-500 text-xs">{r.employeeId}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-white text-xs">{r.doctorName}</td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">{r.hospitalName}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${r.doctorType === 'VIP' ? 'text-yellow-400' : r.doctorType === 'Specialist' ? 'text-purple-400' : 'text-slate-400'}`}>
+                        {r.doctorType}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">{r.area}</td>
+                    <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{r.visitDate}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      <span className={r.locationValid ? 'text-green-400' : 'text-yellow-400'}>
+                        {r.locationValid ? '✅' : '⚠️'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {r.photo && <img src={r.photo} className="w-9 h-9 rounded-lg object-cover cursor-pointer border border-white/10" onClick={() => window.open(r.photo)} />}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Doctors */}
+      {stockTab === 'doctors' && (
+        <OwnerDoctorsManager doctors={doctors} setDoctors={setDoctors} employees={employees} alert={alert} setAlert={setAlert} />
+      )}
+
+      {/* Incentive Adjustment */}
+      {stockTab === 'incentive' && (
+        <div>
+          <div className="p-3 rounded-xl text-xs text-blue-300 border border-blue-500/20 mb-4" style={{ background: 'rgba(59,130,246,0.06)' }}>
+            ℹ️ Delayed Incentive: Employee earns in Month A → Verify in Month B → Pay in Month C. Adjust here based on stock returns.
+          </div>
+          <div className="rounded-2xl overflow-hidden" style={cs}>
+            <div className="p-4 border-b border-white/5 font-bold text-white text-sm">💰 Incentive Adjustments — {selectedMonth}</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    {['Employee', 'Adjustment (₹)', 'Stock Returns', 'Status', 'Action'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center py-10 text-slate-600">No employees</td></tr>
+                  ) : employees.map((e: any, i: number) => {
+                    const f = incForm[e.employeeId] || {};
+                    return (
+                      <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                        <td className="px-4 py-3">
+                          <div className="text-white font-semibold text-xs">{e.name}</div>
+                          <div className="text-slate-500 text-xs">{e.employeeId}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input type="number" value={f.adj || ''} onChange={ev => setIncForm(p => ({ ...p, [e.employeeId]: { ...p[e.employeeId], adj: ev.target.value } }))}
+                            className={inputCls} style={inputStyle} placeholder="₹0" />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input type="number" value={f.returns || ''} onChange={ev => setIncForm(p => ({ ...p, [e.employeeId]: { ...p[e.employeeId], returns: ev.target.value } }))}
+                            className={inputCls} style={inputStyle} placeholder="0 units" />
+                        </td>
+                        <td className="px-4 py-3">
+                          <select value={f.status || 'adjusted'} onChange={ev => setIncForm(p => ({ ...p, [e.employeeId]: { ...p[e.employeeId], status: ev.target.value } }))}
+                            className="px-2 py-1.5 rounded-lg text-xs text-white border border-white/8 outline-none" style={inputStyle}>
+                            <option value="earned">Earned</option>
+                            <option value="under_review">Under Review</option>
+                            <option value="adjusted">Adjusted</option>
+                            <option value="paid">Paid</option>
+                          </select>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => saveIncentive(e.employeeId)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-purple-400 hover:text-white transition-all"
+                            style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                            Save
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Owner Analytics Tab ────────────────────────────────────────────────────
+function OwnerAnalytics({ selectedMonth }: { selectedMonth: string }) {
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+
+  useEffect(() => {
+    setLoading(true);
+    api.getAnalytics(selectedMonth).then((d: any) => { setAnalytics(d); setLoading(false); }).catch(() => setLoading(false));
+  }, [selectedMonth]);
+
+  if (loading) return <div className="text-center py-10 text-slate-500">Loading analytics...</div>;
+  if (!analytics) return <div className="text-center py-10 text-slate-600">No analytics data</div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { icon: '📞', label: 'Total Calls', value: analytics.totalCalls, color: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.2)', text: 'text-green-400' },
+          { icon: '📦', label: 'Stock Requests', value: analytics.totalStockRequests, color: 'rgba(59,130,246,0.1)', border: 'rgba(59,130,246,0.2)', text: 'text-blue-400' },
+          { icon: '👥', label: 'Active MRs', value: analytics.mrStats?.length || 0, color: 'rgba(168,85,247,0.1)', border: 'rgba(168,85,247,0.2)', text: 'text-purple-400' },
+          { icon: '📍', label: 'Active Areas', value: analytics.areaStats?.length || 0, color: 'rgba(234,179,8,0.1)', border: 'rgba(234,179,8,0.2)', text: 'text-yellow-400' },
+        ].map(s => (
+          <div key={s.label} className="rounded-2xl p-4 flex items-center gap-3" style={{ background: s.color, border: `1px solid ${s.border}` }}>
+            <div className="text-2xl">{s.icon}</div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase tracking-wide">{s.label}</div>
+              <div className={`text-xl font-bold ${s.text}`}>{s.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Employee Call Stats */}
+      <div className="rounded-2xl overflow-hidden" style={cs}>
+        <div className="p-4 border-b border-white/5 font-bold text-white text-sm">👤 Employee Performance</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                {['Employee', 'Area', 'Total Calls', 'VIP', 'Specialist', 'Regular', 'Stock Req', 'Approved'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(analytics.empCallStats || []).map((e: any, i: number) => (
+                <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                  <td className="px-4 py-2.5">
+                    <div className="text-white font-semibold text-xs">{e.employeeName}</div>
+                    <div className="text-slate-500 text-xs">{e.employeeId}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-400 text-xs">{e.area}</td>
+                  <td className="px-4 py-2.5 text-green-400 font-bold">{e.totalCalls}</td>
+                  <td className="px-4 py-2.5 text-yellow-400">{e.vipCalls}</td>
+                  <td className="px-4 py-2.5 text-purple-400">{e.specialistCalls}</td>
+                  <td className="px-4 py-2.5 text-slate-400">{e.regularCalls}</td>
+                  <td className="px-4 py-2.5 text-blue-400">{e.stockRequests}</td>
+                  <td className="px-4 py-2.5 text-green-400">{e.approvedStocks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* MR Stats */}
+      <div className="rounded-2xl overflow-hidden" style={cs}>
+        <div className="p-4 border-b border-white/5 font-bold text-white text-sm">🧑‍💼 MR Performance</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                {['MR', 'Area', 'Employees', 'Total Calls'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(analytics.mrStats || []).map((m: any, i: number) => (
+                <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                  <td className="px-4 py-2.5">
+                    <div className="text-white font-semibold text-xs">{m.mrName}</div>
+                    <div className="text-slate-500 text-xs">{m.mrId}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-400 text-xs">{m.area}</td>
+                  <td className="px-4 py-2.5 text-blue-400">{m.employeeCount}</td>
+                  <td className="px-4 py-2.5 text-green-400 font-bold">{m.totalCalls}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Area Stats */}
+      <div className="rounded-2xl overflow-hidden" style={cs}>
+        <div className="p-4 border-b border-white/5 font-bold text-white text-sm">📍 Area-wise Performance</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
+          {(analytics.areaStats || []).map((a: any, i: number) => (
+            <div key={i} className="rounded-xl p-4 text-center" style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)' }}>
+              <div className="text-white font-bold text-sm mb-1">{a.area}</div>
+              <div className="text-2xl font-bold text-green-400">{a.calls}</div>
+              <div className="text-xs text-slate-500">Calls</div>
+              <div className="text-xs text-blue-400 mt-1">{a.employees} employees</div>
+            </div>
+          ))}
+          {(!analytics.areaStats || analytics.areaStats.length === 0) && (
+            <div className="col-span-full text-center py-8 text-slate-600">No area data for {selectedMonth}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Owner MR Management Tab ────────────────────────────────────────────────
+function OwnerMRManagement() {
+  const [mrs, setMrs] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [alert, setAlert] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editMR, setEditMR] = useState<any>(null);
+  const [form, setForm] = useState({ name: '', mrId: '', email: '', password: '', phone: '', area: '', pincodes: '', employeeIds: '', baseSalary: '' });
+  const [loading, setLoading] = useState(false);
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+
+  useEffect(() => {
+    api.getMRs().then((d: any) => setMrs(d)).catch(() => {});
+    api.getEmployees().then((d: any) => setEmployees(d)).catch(() => {});
+  }, []);
+
+  async function saveMR(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    const body = {
+      ...form,
+      pincodes: form.pincodes.split(',').map(s => s.trim()).filter(Boolean),
+      employeeIds: form.employeeIds.split(',').map(s => s.trim()).filter(Boolean),
+      baseSalary: Number(form.baseSalary) || 0,
+    };
+    try {
+      if (editMR) {
+        const updated = await api.updateMR(editMR._id || editMR.id, body);
+        setMrs(prev => prev.map((m: any) => (m.mrId === editMR.mrId ? updated : m)));
+        setAlert('✅ MR updated');
+      } else {
+        const created = await api.createMR(body);
+        setMrs(prev => [...prev, created as any]);
+        setAlert('✅ MR created');
+      }
+      setShowForm(false); setEditMR(null);
+      setForm({ name: '', mrId: '', email: '', password: '', phone: '', area: '', pincodes: '', employeeIds: '', baseSalary: '' });
+    } catch (err: any) { setAlert(`⚠️ ${err.message}`); }
+    setLoading(false);
+    setTimeout(() => setAlert(''), 3000);
+  }
+
+  function startEdit(mr: any) {
+    setEditMR(mr);
+    setForm({ name: mr.name, mrId: mr.mrId, email: mr.email, password: '', phone: mr.phone || '', area: mr.area || '', pincodes: mr.pincodes?.join(', ') || '', employeeIds: mr.employeeIds?.join(', ') || '', baseSalary: String(mr.baseSalary || 0) });
+    setShowForm(true);
+  }
+
+  async function deleteMR(id: string) {
+    if (!confirm('Delete this MR?')) return;
+    try { await api.deleteMR(id); setMrs(prev => prev.filter((m: any) => m._id !== id && m.id !== id)); setAlert('MR deleted'); }
+    catch (err: any) { setAlert(`⚠️ ${err.message}`); }
+    setTimeout(() => setAlert(''), 3000);
+  }
+
+  const inputCls = "w-full px-3 py-2.5 rounded-xl text-sm text-white border border-white/8 outline-none focus:border-green-500/40 transition-all";
+  const inputStyle = { background: 'rgba(255,255,255,0.04)' };
+
+  return (
+    <div>
+      {alert && <div className="p-3 rounded-xl text-sm mb-4 text-green-300 border border-green-500/20" style={{ background: 'rgba(34,197,94,0.08)' }}>{alert}</div>}
+      <div className="flex items-center justify-between mb-4">
+        <div className="font-bold text-white">🧑‍💼 MR Management ({mrs.length} MRs)</div>
+        <button onClick={() => { setShowForm(!showForm); setEditMR(null); setForm({ name: '', mrId: '', email: '', password: '', phone: '', area: '', pincodes: '', employeeIds: '', baseSalary: '' }); }}
+          className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.02]"
+          style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+          {showForm ? '✕ Cancel' : '+ Add MR'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="rounded-2xl p-5 mb-5" style={cs}>
+          <div className="font-bold text-white mb-3 text-sm">{editMR ? 'Edit MR' : 'Add New MR'}</div>
+          <form onSubmit={saveMR} className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Name *</label>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="Full Name" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">MR ID *</label>
+              <input value={form.mrId} onChange={e => setForm(f => ({ ...f, mrId: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="MR001" disabled={!!editMR} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Email *</label>
+              <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="mr@company.com" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">{editMR ? 'New Password (leave blank to keep)' : 'Password *'}</label>
+              <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required={!editMR} className={inputCls} style={inputStyle} placeholder="Password" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Phone</label>
+              <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className={inputCls} style={inputStyle} placeholder="Phone" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Area</label>
+              <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} className={inputCls} style={inputStyle} placeholder="e.g. KPHB" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Pincodes (comma-separated)</label>
+              <input value={form.pincodes} onChange={e => setForm(f => ({ ...f, pincodes: e.target.value }))} className={inputCls} style={inputStyle} placeholder="500072, 500073" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Employee IDs (comma-separated)</label>
+              <input value={form.employeeIds} onChange={e => setForm(f => ({ ...f, employeeIds: e.target.value }))} className={inputCls} style={inputStyle} placeholder="EMP001, EMP002" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Base Salary (₹)</label>
+              <input type="number" value={form.baseSalary} onChange={e => setForm(f => ({ ...f, baseSalary: e.target.value }))} className={inputCls} style={inputStyle} placeholder="0" />
+            </div>
+            <div className="flex items-end">
+              <button type="submit" disabled={loading} className="w-full py-2.5 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+                {loading ? 'Saving...' : (editMR ? 'Update MR' : 'Create MR')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="rounded-2xl overflow-hidden" style={cs}>
+        <div className="p-4 border-b border-white/5 font-bold text-white text-sm">All MRs</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                {['MR ID', 'Name', 'Area', 'Pincodes', 'Employees', 'Salary', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {mrs.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-10 text-slate-600">No MRs yet. Click "+ Add MR" to create one.</td></tr>
+              ) : mrs.map((m: any, i: number) => (
+                <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                  <td className="px-4 py-3 text-green-400 font-bold text-xs">{m.mrId}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-white font-semibold text-xs">{m.name}</div>
+                    <div className="text-slate-500 text-xs">{m.email}</div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-300 text-xs">{m.area || '—'}</td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">{m.pincodes?.join(', ') || '—'}</td>
+                  <td className="px-4 py-3 text-blue-400 text-xs">{m.employeeIds?.length || 0}</td>
+                  <td className="px-4 py-3 text-green-400 text-xs">₹{(m.baseSalary || 0).toLocaleString()}</td>
+                  <td className="px-4 py-3 flex gap-2">
+                    <button onClick={() => startEdit(m)}
+                      className="px-2.5 py-1 rounded-lg text-xs text-blue-400 hover:text-white transition-all"
+                      style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>Edit</button>
+                    <button onClick={() => deleteMR(m._id || m.id)}
+                      className="px-2.5 py-1 rounded-lg text-xs text-red-400 hover:text-white transition-all"
+                      style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Employee Assignment Helper */}
+      <div className="rounded-2xl overflow-hidden mt-5" style={cs}>
+        <div className="p-4 border-b border-white/5 font-bold text-white text-sm">👤 Employee → MR Assignments</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                {['Employee', 'Area', 'Assigned MR', 'Pincodes'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map((e: any, i: number) => {
+                const assignedMR = mrs.find((m: any) => m.mrId === e.mrId);
+                return (
+                  <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                    <td className="px-4 py-2.5">
+                      <div className="text-white font-semibold text-xs">{e.name}</div>
+                      <div className="text-slate-500 text-xs">{e.employeeId}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">{e.assignedArea || '—'}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      {assignedMR ? (
+                        <span className="text-green-400 font-semibold">{assignedMR.name} ({assignedMR.mrId})</span>
+                      ) : (
+                        <span className="text-red-400">Not assigned</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-500 text-xs">{e.assignedPincodes?.join(', ') || '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Owner Employees Tab ────────────────────────────────────────────────────
+function OwnerEmployees({ employees, onRefresh, setAlert }: any) {
+  const [showForm, setShowForm] = useState(false);
+  const [editEmp, setEditEmp] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    name: '', employeeId: '', email: '', password: '', phone: '',
+    department: '', designation: '', baseSalary: '', travelDistance: '',
+    assignedArea: '', assignedPincodes: '', mrId: '', role: 'employee',
+  });
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+  const inputCls = "w-full px-3 py-2 rounded-xl text-sm text-white border border-white/8 outline-none focus:border-purple-500/40 transition-all";
+  const inputStyle = { background: 'rgba(255,255,255,0.04)' };
+
+  function startEdit(e: any) {
+    setEditEmp(e);
+    setForm({
+      name: e.name, employeeId: e.employeeId, email: e.email, password: '',
+      phone: e.phone || '', department: e.department || '', designation: e.designation || '',
+      baseSalary: String(e.baseSalary || 0), travelDistance: String(e.travelDistance || 0),
+      assignedArea: e.assignedArea || '', assignedPincodes: e.assignedPincodes?.join(', ') || '',
+      mrId: e.mrId || '', role: e.role || 'employee',
+    });
+    setShowForm(true);
+  }
+
+  async function saveEmployee(ev: React.FormEvent) {
+    ev.preventDefault();
+    setLoading(true);
+    const body: any = {
+      ...form,
+      baseSalary: Number(form.baseSalary) || 0,
+      travelDistance: Number(form.travelDistance) || 0,
+      assignedPincodes: form.assignedPincodes.split(',').map(s => s.trim()).filter(Boolean),
+    };
+    if (!body.password) delete body.password;
+    try {
+      if (editEmp) {
+        await api.updateEmployee(editEmp._id || editEmp.id, body);
+        setAlert({ msg: '✅ Employee updated', type: 'success' });
+      } else {
+        await api.createEmployee(body);
+        setAlert({ msg: '✅ Employee created', type: 'success' });
+      }
+      setShowForm(false); setEditEmp(null);
+      setForm({ name: '', employeeId: '', email: '', password: '', phone: '', department: '', designation: '', baseSalary: '', travelDistance: '', assignedArea: '', assignedPincodes: '', mrId: '', role: 'employee' });
+      onRefresh();
+    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+    setLoading(false);
+  }
+
+  async function deleteEmployee(id: string) {
+    if (!confirm('Delete this employee?')) return;
+    try { await api.deleteEmployee(id); setAlert({ msg: 'Employee deleted', type: 'success' }); onRefresh(); }
+    catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="font-bold text-white">👥 All Employees ({employees.length})</div>
+        <button onClick={() => { setShowForm(!showForm); setEditEmp(null); setForm({ name: '', employeeId: '', email: '', password: '', phone: '', department: '', designation: '', baseSalary: '', travelDistance: '', assignedArea: '', assignedPincodes: '', mrId: '', role: 'employee' }); }}
+          className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.02]"
+          style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+          {showForm ? '✕ Cancel' : '+ Add Employee'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="rounded-2xl p-5 mb-5" style={cs}>
+          <div className="font-bold text-white mb-3 text-sm">{editEmp ? 'Edit Employee' : 'Add New Employee'}</div>
+          <form onSubmit={saveEmployee} className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Name *</label>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="Full Name" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Employee ID *</label>
+              <input value={form.employeeId} onChange={e => setForm(f => ({ ...f, employeeId: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="EMP001" disabled={!!editEmp} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Email *</label>
+              <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="emp@company.com" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">{editEmp ? 'New Password (leave blank)' : 'Password *'}</label>
+              <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required={!editEmp} className={inputCls} style={inputStyle} placeholder="Password" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Department</label>
+              <input value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className={inputCls} style={inputStyle} placeholder="Sales" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Designation</label>
+              <input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} className={inputCls} style={inputStyle} placeholder="Field Executive" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Base Salary (₹)</label>
+              <input type="number" value={form.baseSalary} onChange={e => setForm(f => ({ ...f, baseSalary: e.target.value }))} className={inputCls} style={inputStyle} placeholder="0" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Travel Distance (km)</label>
+              <input type="number" value={form.travelDistance} onChange={e => setForm(f => ({ ...f, travelDistance: e.target.value }))} className={inputCls} style={inputStyle} placeholder="0" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Assigned Area 📍</label>
+              <input value={form.assignedArea} onChange={e => setForm(f => ({ ...f, assignedArea: e.target.value }))} className={inputCls} style={inputStyle} placeholder="e.g. KPHB" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Pincodes (comma-separated)</label>
+              <input value={form.assignedPincodes} onChange={e => setForm(f => ({ ...f, assignedPincodes: e.target.value }))} className={inputCls} style={inputStyle} placeholder="500072, 500073" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">MR ID</label>
+              <input value={form.mrId} onChange={e => setForm(f => ({ ...f, mrId: e.target.value }))} className={inputCls} style={inputStyle} placeholder="MR001" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Role</label>
+              <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className={inputCls} style={inputStyle}>
+                <option value="employee">Employee</option>
+                <option value="mr">MR</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <button type="submit" disabled={loading} className="px-6 py-2.5 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+                {loading ? 'Saving...' : (editEmp ? 'Update Employee' : 'Create Employee')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="rounded-2xl overflow-hidden" style={cs}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                {['ID', 'Name', 'Area', 'Pincodes', 'MR ID', 'Base Salary', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {employees.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-10 text-slate-600">No employees yet</td></tr>
+              ) : employees.map((e: any, i: number) => (
+                <tr key={i} className="border-t border-white/4 hover:bg-white/2">
+                  <td className="px-4 py-3 text-blue-400 font-semibold text-xs">{e.employeeId}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-white font-semibold text-xs">{e.name}</div>
+                    <div className="text-slate-500 text-xs">{e.designation || e.department || '—'}</div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-300 text-xs">{e.assignedArea || '—'}</td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">{e.assignedPincodes?.join(', ') || '—'}</td>
+                  <td className="px-4 py-3 text-green-400 text-xs font-semibold">{e.mrId || '—'}</td>
+                  <td className="px-4 py-3 text-green-400 font-semibold text-xs">₹{(e.baseSalary || 0).toLocaleString()}</td>
+                  <td className="px-4 py-3 flex gap-2">
+                    <button onClick={() => startEdit(e)}
+                      className="px-2.5 py-1 rounded-lg text-xs text-blue-400 hover:text-white transition-all"
+                      style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>Edit</button>
+                    <button onClick={() => deleteEmployee(e._id || e.id)}
+                      className="px-2.5 py-1 rounded-lg text-xs text-red-400 hover:text-white transition-all"
+                      style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Owner Doctors Manager ──────────────────────────────────────────────────
+function OwnerDoctorsManager({ doctors, setDoctors, employees, alert: _a, setAlert }: any) {
+  const [showForm, setShowForm] = useState(false);
+  const [locText, setLocText] = useState('');
+  const [selectedLoc, setSelectedLoc] = useState<LocationResult | null>(null);
+  const [form, setForm] = useState({ name: '', hospital: '', type: 'Regular', area: '', pincode: '', assignedEmployeeIds: [] as string[] });
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
+  const inputCls = 'w-full px-3 py-2.5 rounded-xl text-sm text-white border border-white/8 outline-none focus:border-purple-500/40 transition-all';
+  const inputStyle = { background: 'rgba(255,255,255,0.04)' };
+
+  function handleLocSelect(loc: LocationResult) {
+    setSelectedLoc(loc);
+    setForm(f => ({
+      ...f,
+      hospital: f.hospital || loc.name,
+      area: loc.area || loc.city || f.area,
+      pincode: loc.pincode || f.pincode,
+    }));
+  }
+
+  function toggleEmployee(empId: string) {
+    setForm(f => ({
+      ...f,
+      assignedEmployeeIds: f.assignedEmployeeIds.includes(empId)
+        ? f.assignedEmployeeIds.filter(id => id !== empId)
+        : [...f.assignedEmployeeIds, empId],
+    }));
+  }
+
+  async function saveDoctor(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim() || !form.hospital.trim()) { setAlert({ msg: 'Doctor name and hospital are required', type: 'error' }); return; }
+    setSaving(true);
+    try {
+      const created: any = await api.addDoctor({
+        name: form.name, hospital: form.hospital, type: form.type,
+        area: form.area, pincode: form.pincode,
+        lat: selectedLoc?.lat ?? null, lng: selectedLoc?.lng ?? null,
+        locationAddress: selectedLoc?.displayName || '',
+        assignedEmployeeIds: form.assignedEmployeeIds,
+      });
+      setDoctors((prev: any[]) => [...prev, created]);
+      setAlert({ msg: '✅ Doctor added!', type: 'success' });
+      setShowForm(false);
+      setLocText(''); setSelectedLoc(null);
+      setForm({ name: '', hospital: '', type: 'Regular', area: '', pincode: '', assignedEmployeeIds: [] });
+    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+    setSaving(false);
+  }
+
+  async function deleteDoc(id: string) {
+    if (!confirm('Delete this doctor?')) return;
+    try {
+      await api.deleteDoctor(id);
+      setDoctors((prev: any[]) => prev.filter((d: any) => (d.id || d._id) !== id));
+      setAlert({ msg: 'Doctor deleted', type: 'success' });
+    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+  }
+
+  async function toggleAssign(docId: string, empId: string, current: string[]) {
+    const next = current.includes(empId) ? current.filter(id => id !== empId) : [...current, empId];
+    try {
+      await api.updateDoctor(docId, { assignedEmployeeIds: next });
+      setDoctors((prev: any[]) => prev.map((d: any) => (d.id || d._id) === docId ? { ...d, assignedEmployeeIds: next } : d));
+    } catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+  }
+
+  const filtered = doctors.filter((d: any) =>
+    (!search || d.name.toLowerCase().includes(search.toLowerCase()) || d.hospital.toLowerCase().includes(search.toLowerCase())) &&
+    (!filterType || d.type === filterType)
+  );
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="flex-1 relative" style={{ minWidth: 180 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search doctors…"
+            className="w-full px-3 py-2 pl-8 rounded-xl text-sm text-white border border-white/8 outline-none" style={{ background: 'rgba(255,255,255,0.04)' }} />
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none">🔍</span>
+        </div>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)}
+          className="px-3 py-2 rounded-xl text-sm text-white border border-white/8 outline-none" style={{ background: 'rgba(255,255,255,0.04)' }}>
+          <option value="">All Types</option>
+          <option value="VIP">⭐ VIP</option>
+          <option value="Specialist">💊 Specialist</option>
+          <option value="Regular">👨‍⚕️ Regular</option>
+        </select>
+        <div className="text-xs text-slate-500">{filtered.length} doctors</div>
+        <button onClick={() => setShowForm(!showForm)}
+          className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.02]"
+          style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+          {showForm ? '✕ Cancel' : '+ Add Doctor'}
+        </button>
+      </div>
+
+      {/* Add form */}
+      {showForm && (
+        <div className="rounded-2xl p-5 mb-5" style={cs}>
+          <div className="font-bold text-white mb-1 text-sm">🏥 Add New Doctor</div>
+          <div className="text-xs text-slate-500 mb-4">Search the hospital location — GPS stored automatically, no manual coordinates needed.</div>
+          <form onSubmit={saveDoctor} className="space-y-4">
+            <LocationSearchInput
+              label="Search Hospital / Clinic Location"
+              value={locText}
+              onChange={setLocText}
+              onSelect={handleLocSelect}
+              placeholder="e.g. Apollo Hospital Jubilee Hills"
+            />
+            {selectedLoc && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
+                style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.25)' }}>
+                <span className="text-purple-400">📍</span>
+                <div className="flex-1">
+                  <span className="text-purple-300 font-semibold">{selectedLoc.name}</span>
+                  {selectedLoc.area && <span className="text-slate-400 ml-2">{selectedLoc.area}</span>}
+                  {selectedLoc.pincode && <span className="text-slate-500 ml-2">PIN: {selectedLoc.pincode}</span>}
+                  <span className="text-slate-700 ml-2">({selectedLoc.lat.toFixed(5)}, {selectedLoc.lng.toFixed(5)})</span>
+                </div>
+                <button type="button" onClick={() => { setSelectedLoc(null); setLocText(''); }} className="text-slate-600 hover:text-red-400">✕</button>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Doctor Name *</label>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="Dr. Full Name" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Hospital Name *</label>
+                <input value={form.hospital} onChange={e => setForm(f => ({ ...f, hospital: e.target.value }))} required className={inputCls} style={inputStyle} placeholder="Auto-filled from search" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Area</label>
+                <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} className={inputCls} style={inputStyle} placeholder="Auto-filled" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Pincode</label>
+                <input value={form.pincode} onChange={e => setForm(f => ({ ...f, pincode: e.target.value }))} className={inputCls} style={inputStyle} placeholder="Auto-filled" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1 uppercase tracking-wide">Doctor Type</label>
+                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className={inputCls} style={inputStyle}>
+                  <option value="Regular">Regular</option>
+                  <option value="VIP">VIP</option>
+                  <option value="Specialist">Specialist</option>
+                </select>
+              </div>
+            </div>
+            {employees.length > 0 && (
+              <div>
+                <label className="block text-xs text-slate-400 mb-2 uppercase tracking-wide">Assign to Employees</label>
+                <div className="flex flex-wrap gap-2">
+                  {employees.map((e: any) => {
+                    const on = form.assignedEmployeeIds.includes(e.employeeId);
+                    return (
+                      <button key={e.employeeId} type="button" onClick={() => toggleEmployee(e.employeeId)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                        style={on ? { background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.4)', color: '#c4b5fd' }
+                          : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b' }}>
+                        {on ? '✓ ' : ''}{e.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <button type="submit" disabled={saving}
+              className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50 transition-all hover:scale-[1.02]"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+              {saving ? 'Saving…' : '🏥 Add Doctor'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Cards grid */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-slate-600">
+          {doctors.length === 0 ? 'No doctors yet. Click "+ Add Doctor".' : `No doctors match "${search}".`}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((d: any) => {
+            const docId = d.id || d._id;
+            const assigned: string[] = d.assignedEmployeeIds || [];
+            return (
+              <div key={docId} className="rounded-2xl p-4" style={cs}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="font-bold text-white text-sm">{d.name}</div>
+                    <div className="text-slate-400 text-xs mt-0.5">🏥 {d.hospital}</div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0
+                    ${d.type === 'VIP' ? 'text-yellow-400' : d.type === 'Specialist' ? 'text-purple-400' : 'text-slate-400'}`}
+                    style={{ background: d.type === 'VIP' ? 'rgba(234,179,8,0.1)' : d.type === 'Specialist' ? 'rgba(168,85,247,0.1)' : 'rgba(255,255,255,0.05)' }}>
+                    {d.type}
+                  </span>
+                </div>
+                <div className="text-slate-500 text-xs mb-1">📍 {d.area || '—'}{d.pincode ? ` · ${d.pincode}` : ''}</div>
+                {d.lat ? <div className="text-green-600 text-xs mb-2">✅ GPS stored</div> : <div className="text-yellow-600 text-xs mb-2">⚠️ No GPS</div>}
+                <div className="mb-3">
+                  <div className="text-xs text-slate-500 mb-1.5 font-semibold uppercase tracking-wide">Assigned Employees</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {employees.map((e: any) => {
+                      const on = assigned.includes(e.employeeId);
+                      return (
+                        <button key={e.employeeId} type="button"
+                          onClick={() => toggleAssign(docId, e.employeeId, assigned)}
+                          className="px-2 py-1 rounded-lg text-xs font-semibold transition-all"
+                          style={on
+                            ? { background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.35)', color: '#c4b5fd' }
+                            : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', color: '#475569' }}>
+                          {on ? '✓ ' : '+ '}{e.name.split(' ')[0]}
+                        </button>
+                      );
+                    })}
+                    {employees.length === 0 && <span className="text-slate-600 text-xs">No employees</span>}
+                  </div>
+                </div>
+                <button onClick={() => deleteDoc(docId)} className="text-red-400/50 hover:text-red-400 text-xs transition-colors">🗑 Delete</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

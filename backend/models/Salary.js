@@ -19,6 +19,20 @@ const salarySchema = new mongoose.Schema({
   netSalary: { type: Number, default: 0 },
   status: { type: String, enum: ['pending', 'processed', 'credited'], default: 'pending' },
   creditedAt: { type: Date },
+
+  // Pharma delayed incentive system
+  // Incentive earned in Month A is verified in Month B and paid in Month C
+  incentiveEarnedMonth: { type: String, default: '' },   // month when target was hit
+  incentiveVerifiedMonth: { type: String, default: '' }, // month when verified
+  incentivePaidMonth: { type: String, default: '' },     // month when actually paid
+  incentiveStatus: {
+    type: String,
+    enum: ['none', 'earned', 'under_review', 'adjusted', 'paid'],
+    default: 'none'
+  },
+  incentiveAdjustment: { type: Number, default: 0 },    // reduction due to returns
+  callsCompleted: { type: Number, default: 0 },          // doctor calls this month
+  stockReturns: { type: Number, default: 0 },            // returned stock quantity
 }, { timestamps: true });
 
 module.exports = mongoose.model('Salary', salarySchema);

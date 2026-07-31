@@ -22,7 +22,13 @@ const employeeSchema = new mongoose.Schema({
       read: { type: Boolean, default: false },
       createdAt: { type: Date, default: Date.now }
     }
-  ]
+  ],
+  // Pharma field management
+  role: { type: String, enum: ['employee', 'mr', 'owner'], default: 'employee' },
+  assignedArea: { type: String, default: '' },       // e.g. "KPHB"
+  assignedPincodes: [{ type: String }],              // e.g. ["500072", "500073"]
+  mrId: { type: String, default: '' },               // MR who manages this employee
+  targetCalls: { type: Number, default: 3 },         // daily call target
 }, { timestamps: true });
 
 // Hash password before saving

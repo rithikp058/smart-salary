@@ -67,9 +67,12 @@ function getMockProfile() {
 // ── HTTP helper ────────────────────────────────────────────────────────────
 function getToken() { return localStorage.getItem('ssp_token'); }
 function getOwnerToken() { return localStorage.getItem('ssp_owner_token'); }
+function getMRToken() { return localStorage.getItem('ssp_mr_token'); }
 
-async function request(endpoint: string, options: RequestInit = {}, useOwnerToken = false) {
-  const token = useOwnerToken ? getOwnerToken() : getToken();
+async function request(endpoint: string, options: RequestInit = {}, useOwnerToken = false, useMRToken = false) {
+  let token = useOwnerToken ? getOwnerToken() : useMRToken ? getMRToken() : getToken();
+  // If no specific token found, try any available token
+  if (!token) token = getToken() || getMRToken() || getOwnerToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
@@ -95,8 +98,8 @@ function norm(data: any): any {
   return data;
 }
 
-async function req(endpoint: string, options: RequestInit = {}, useOwnerToken = false) {
-  const data = await request(endpoint, options, useOwnerToken);
+async function req(endpoint: string, options: RequestInit = {}, useOwnerToken = false, useMRToken = false) {
+  const data = await request(endpoint, options, useOwnerToken, useMRToken);
   return norm(data);
 }
 
@@ -260,4 +263,97 @@ export const api = {
     }
     return request('/attendance/override', { method: 'PUT', body: JSON.stringify(body) }, true);
   },
+
+  // ── MR Auth ────────────────────────────────────────────────────────────
+  mrLogin: (body: object) => MOCK_MODE
+    ? Promise.resolve({ token: 'mock-mr-token', mr: { name: 'Demo MR', mrId: 'MR001', area: 'KPHB', pincodes: ['500072'], employeeIds: ['EMP001'] } })
+    : request('/auth/mr-login', { method: 'POST', body: JSON.stringify(body) }),
+
+  // ── Pharma: Doctors ────────────────────────────────────────────────────
+  getDoctors: (params?: { area?: string; pincode?: string; type?: string; employeeId?: string }) => {
+    const q = params ? '?' + Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('&') : '';
+    return MOCK_MODE ? Promise.resolve([
+      { _id: 'd1', id: 'd1', name: 'Dr. Ramesh Kumar', hospital: 'City Hospital', area: 'KPHB', pincode: '500072', type: 'VIP', lat: 17.4947, lng: 78.3996, assignedEmployeeIds: ['EMP001'] },
+      { _id: 'd2', id: 'd2', name: 'Dr. Priya Sharma', hospital: 'Apollo Clinic', area: 'Ameerpet', pincode: '500016', type: 'Specialist', lat: 17.4374, lng: 78.4487, assignedEmployeeIds: [] },
+      { _id: 'd3', id: 'd3', name: 'Dr. Suresh Reddy', hospital: 'Medplus', area: 'KPHB', pincode: '500072', type: 'Regular', lat: 17.4950, lng: 78.4000, assignedEmployeeIds: ['EMP001'] },
+    ]) : req(`/pharma/doctors${q}`);
+  },
+
+  // Location search via Nominatim proxy (no API key, no new packages)
+  locationSearch: (q: string) => {
+    if (!q || q.trim().length < 2) return Promise.resolve([]);
+    return req(`/pharma/location-search?q=${encodeURIComponent(q.trim())}`);
+  },
+  addDoctor: (body: object) => MOCK_MODE ? Promise.resolve({ id: Date.now().toString(), ...body as any }) : req('/pharma/doctors', { method: 'POST', body: JSON.stringify(body) }),
+  updateDoctor: (id: string, body: object) => MOCK_MODE ? Promise.resolve({}) : req(`/pharma/doctors/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteDoctor: (id: string) => MOCK_MODE ? Promise.resolve({}) : req(`/pharma/doctors/${id}`, { method: 'DELETE' }, true),
+
+  // ── Pharma: Call Reports ───────────────────────────────────────────────
+  submitCallReport: (body: object) => MOCK_MODE ? Promise.resolve({ id: Date.now().toString(), ...body as any, createdAt: new Date().toISOString() }) : req('/pharma/call-reports', { method: 'POST', body: JSON.stringify(body) }),
+  getMyCallReports: (params?: { month?: string; date?: string }) => {
+    const q = params ? '?' + Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('&') : '';
+    return MOCK_MODE ? Promise.resolve([]) : req(`/pharma/call-reports/my${q}`);
+  },
+  getAllCallReports: (params?: { month?: string; employeeId?: string; mrId?: string }) => {
+    const q = params ? '?' + Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('&') : '';
+    const isMRRole = localStorage.getItem('ssp_role') === 'mr';
+    return MOCK_MODE ? Promise.resolve([]) : req(`/pharma/call-reports/all${q}`, {}, !isMRRole, isMRRole);
+  },
+
+  // ── Pharma: Stock Requests ─────────────────────────────────────────────
+  submitStockRequest: (body: object) => MOCK_MODE ? Promise.resolve({ id: Date.now().toString(), ...body as any, status: 'pending', createdAt: new Date().toISOString() }) : req('/pharma/stock-requests', { method: 'POST', body: JSON.stringify(body) }),
+  getMyStockRequests: (params?: { month?: string }) => {
+    const q = params ? '?' + Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('&') : '';
+    return MOCK_MODE ? Promise.resolve([]) : req(`/pharma/stock-requests/my${q}`);
+  },
+  getAllStockRequests: (params?: { month?: string; status?: string; employeeId?: string }) => {
+    const q = params ? '?' + Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('&') : '';
+    const isMRRole = localStorage.getItem('ssp_role') === 'mr';
+    return MOCK_MODE ? Promise.resolve([]) : req(`/pharma/stock-requests/all${q}`, {}, !isMRRole, isMRRole);
+  },
+  approveStockRequest: (id: string, body: object) => {
+    const isMRRole = localStorage.getItem('ssp_role') === 'mr';
+    return MOCK_MODE ? Promise.resolve({}) : req(`/pharma/stock-requests/${id}/approve`, { method: 'PUT', body: JSON.stringify(body) }, !isMRRole, isMRRole);
+  },
+  rejectStockRequest: (id: string, body: object) => {
+    const isMRRole = localStorage.getItem('ssp_role') === 'mr';
+    return MOCK_MODE ? Promise.resolve({}) : req(`/pharma/stock-requests/${id}/reject`, { method: 'PUT', body: JSON.stringify(body) }, !isMRRole, isMRRole);
+  },
+  markStockReturn: (id: string, body: object) => {
+    const isMRRole = localStorage.getItem('ssp_role') === 'mr';
+    return MOCK_MODE ? Promise.resolve({}) : req(`/pharma/stock-requests/${id}/return`, { method: 'PUT', body: JSON.stringify(body) }, !isMRRole, isMRRole);
+  },
+
+  // ── MR Dashboard ───────────────────────────────────────────────────────
+  getMRDashboard: (month?: string) => {
+    const q = month ? `?month=${month}` : '';
+    return MOCK_MODE ? Promise.resolve({
+      mr: { name: 'Demo MR', mrId: 'MR001', area: 'KPHB' },
+      month: month || new Date().toISOString().slice(0, 7),
+      employees: [],
+      totalCalls: 0,
+      pendingStocks: 0,
+    }) : req(`/pharma/mr/dashboard${q}`, {}, false, true);
+  },
+  setEmployeeTarget: (employeeId: string, targetCalls: number) =>
+    MOCK_MODE ? Promise.resolve({}) : req(`/pharma/employees/${employeeId}/target`, { method: 'PUT', body: JSON.stringify({ targetCalls }) }, false, true),
+
+  // ── Owner: MR Management ───────────────────────────────────────────────
+  getMRs: () => MOCK_MODE ? Promise.resolve([]) : req('/owner/mrs', {}, true),
+  createMR: (body: object) => MOCK_MODE ? Promise.resolve({}) : req('/owner/mrs', { method: 'POST', body: JSON.stringify(body) }, true),
+  updateMR: (id: string, body: object) => MOCK_MODE ? Promise.resolve({}) : req(`/owner/mrs/${id}`, { method: 'PUT', body: JSON.stringify(body) }, true),
+  deleteMR: (id: string) => MOCK_MODE ? Promise.resolve({}) : req(`/owner/mrs/${id}`, { method: 'DELETE' }, true),
+
+  // ── Owner: Create Employee ─────────────────────────────────────────────
+  createEmployee: (body: object) => MOCK_MODE ? Promise.resolve({}) : req('/owner/employees', { method: 'POST', body: JSON.stringify(body) }, true),
+  deleteEmployee: (id: string) => MOCK_MODE ? Promise.resolve({}) : req(`/owner/employees/${id}`, { method: 'DELETE' }, true),
+
+  // ── Owner: Analytics ──────────────────────────────────────────────────
+  getAnalytics: (month?: string) => {
+    const q = month ? `?month=${month}` : '';
+    return MOCK_MODE ? Promise.resolve({ empCallStats: [], mrStats: [], areaStats: [], totalCalls: 0, totalStockRequests: 0 }) : req(`/owner/analytics${q}`, {}, true);
+  },
+
+  // ── Salary: Incentive Adjust ───────────────────────────────────────────
+  adjustIncentive: (body: object) => MOCK_MODE ? Promise.resolve({}) : req('/salary/incentive-adjust', { method: 'PUT', body: JSON.stringify(body) }, true),
 };

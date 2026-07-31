@@ -103,6 +103,7 @@ export default function Dashboard() {
           {[
             { to: '/salary', icon: '💰', title: 'Salary', desc: 'View and process your monthly salary.', color: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.15)' },
             { to: '/attendance', icon: '📅', title: 'Attendance', desc: 'Check in daily and view your attendance.', color: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.15)' },
+            { to: '/pharma-employee', icon: '💊', title: 'Field Portal', desc: 'Report calls, stock requests and doctor visits.', color: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.15)' },
             { to: '/profile', icon: '👤', title: 'Profile', desc: 'Update personal and bank details.', color: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.15)' },
           ].map(card => (
             <Link key={card.title} to={card.to}

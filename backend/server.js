@@ -11,10 +11,13 @@ const ownerRoutes = require('./routes/owner');
 const issueRoutes = require('./routes/issues');
 const holidayRoutes = require('./routes/holidays');
 const leaveRoutes = require('./routes/leaves');
+const pharmaRoutes = require('./routes/pharma');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Increase payload limit for base64 photos
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/employee', employeeRoutes);
@@ -24,6 +27,7 @@ app.use('/api/owner', ownerRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/leaves', leaveRoutes);
+app.use('/api/pharma', pharmaRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
 

@@ -8,6 +8,9 @@ export const MOCK_USER = {
   travelDistance: 60,
   phone: '+91 98765 43210',
   bankDetails: { bankName: 'State Bank of India', accountNo: '1234567890', ifsc: 'SBIN0001234' },
+  role: 'employee',
+  assignedArea: 'KPHB',
+  assignedPincodes: ['500072', '500073'],
 };
 
 export function saveSession(token: string, user: object) {
@@ -20,15 +23,27 @@ export function saveOwnerSession(token: string) {
   localStorage.setItem('ssp_role', 'owner');
 }
 
+export function saveMRSession(token: string, mr: object) {
+  localStorage.setItem('ssp_mr_token', token);
+  localStorage.setItem('ssp_mr', JSON.stringify(mr));
+  localStorage.setItem('ssp_role', 'mr');
+}
+
 export function clearSession() {
   localStorage.removeItem('ssp_token');
   localStorage.removeItem('ssp_user');
   localStorage.removeItem('ssp_owner_token');
+  localStorage.removeItem('ssp_mr_token');
+  localStorage.removeItem('ssp_mr');
   localStorage.removeItem('ssp_role');
 }
 
 export function getUser() {
   try { return JSON.parse(localStorage.getItem('ssp_user') || 'null'); } catch { return null; }
+}
+
+export function getMR() {
+  try { return JSON.parse(localStorage.getItem('ssp_mr') || 'null'); } catch { return null; }
 }
 
 export function isLoggedIn() {
@@ -39,6 +54,14 @@ export function isOwner() {
   return localStorage.getItem('ssp_role') === 'owner';
 }
 
+export function isMR() {
+  return localStorage.getItem('ssp_role') === 'mr';
+}
+
 export function getOwnerToken() {
   return localStorage.getItem('ssp_owner_token');
+}
+
+export function getMRToken() {
+  return localStorage.getItem('ssp_mr_token');
 }

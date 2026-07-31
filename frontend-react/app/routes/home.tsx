@@ -38,11 +38,23 @@ export default function Home() {
           <a href="#features" className="text-slate-400 hover:text-white text-sm transition-colors">Features</a>
           <a href="#stats" className="text-slate-400 hover:text-white text-sm transition-colors">About</a>
         </div>
-        <Link to="/login"
-          className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:scale-105 glow-blue-sm"
-          style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)' }}>
-          Get Started →
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/login"
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:scale-105"
+            style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)' }}>
+            Employee →
+          </Link>
+          <Link to="/mr-login"
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:scale-105"
+            style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+            MR →
+          </Link>
+          <Link to="/owner-login"
+            className="hidden sm:block px-4 py-2 rounded-xl text-sm font-semibold text-slate-300 hover:text-white transition-all"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            Owner →
+          </Link>
+        </div>
       </nav>
 
       {/* Hero */}
@@ -68,12 +80,17 @@ export default function Home() {
           <Link to="/login"
             className="px-8 py-3.5 rounded-xl font-bold text-white text-base transition-all hover:scale-105 hover:shadow-2xl glow-blue"
             style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)' }}>
-            🚀 Get Started
+            🚀 Employee Login
           </Link>
-          <a href="#features"
+          <Link to="/mr-login"
+            className="px-8 py-3.5 rounded-xl font-bold text-white text-base transition-all hover:scale-105"
+            style={{ background: 'linear-gradient(135deg, #059669, #10b981)', boxShadow: '0 0 20px rgba(16,185,129,0.25)' }}>
+            🧑‍💼 MR Login
+          </Link>
+          <Link to="/owner-login"
             className="px-8 py-3.5 rounded-xl font-semibold text-slate-300 text-base transition-all hover:text-white glass gradient-border">
-            Learn More
-          </a>
+            👑 Owner Login
+          </Link>
         </div>
 
         {/* Dashboard preview card */}

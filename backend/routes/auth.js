@@ -1,29 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const Employee = require('../models/Employee');
-const authMiddleware = require('../middleware/auth');
+const MR = require('../models/MR');
+const auth = require('../middleware/auth');
 
-const signToken = (employee) =>
-  jwt.sign(
-    { id: employee._id, employeeId: employee.employeeId },
-    process.env.JWT_SECRET || 'fallback_secret',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-  );
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || '7d';
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { employeeId, name, email, password, department, designation, baseSalary } = req.body;
-    if (!employeeId || !name || !email || !password)
-      return res.status(400).json({ message: 'Required fields missing' });
-
-    const exists = await Employee.findOne({ $or: [{ email }, { employeeId }] });
+    const { name, employeeId, email, department, designation, baseSalary, password, phone } = req.body;
+    if (!name || !employeeId || !email || !password) {
+      return res.status(400).json({ message: 'Name, Employee ID, email and password are required' });
+    }
+    const exists = await Employee.findOne({ $or: [{ employeeId }, { email }] });
     if (exists) return res.status(409).json({ message: 'Employee ID or email already exists' });
 
-    const employee = await Employee.create({ employeeId, name, email, password, department, designation, baseSalary });
-    const token = signToken(employee);
-    res.status(201).json({ token, employee: { id: employee._id, employeeId, name, email } });
+    const emp = new Employee({ name, employeeId, email, password, department, designation, baseSalary: baseSalary || 0, phone });
+    await emp.save();
+
+    const token = jwt.sign({ id: emp._id, employeeId: emp.employeeId, role: 'employee' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+    res.status(201).json({ token, employee: { name: emp.name, employeeId: emp.employeeId, email: emp.email, department: emp.department, designation: emp.designation, baseSalary: emp.baseSalary } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -33,47 +33,77 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { employeeId, password } = req.body;
-    if (!employeeId || !password)
-      return res.status(400).json({ message: 'Employee ID and password required' });
+    if (!employeeId || !password) return res.status(400).json({ message: 'Employee ID and password required' });
 
-    const employee = await Employee.findOne({ employeeId });
-    if (!employee || !(await employee.comparePassword(password)))
-      return res.status(401).json({ message: 'Invalid credentials' });
+    const emp = await Employee.findOne({ employeeId });
+    if (!emp) return res.status(401).json({ message: 'Invalid Employee ID or password' });
 
-    const token = signToken(employee);
-    res.json({ token, employee: { id: employee._id, employeeId: employee.employeeId, name: employee.name, email: employee.email } });
+    const valid = await emp.comparePassword(password);
+    if (!valid) return res.status(401).json({ message: 'Invalid Employee ID or password' });
+
+    const token = jwt.sign({ id: emp._id, employeeId: emp.employeeId, role: emp.role || 'employee' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+    res.json({
+      token,
+      employee: {
+        name: emp.name, employeeId: emp.employeeId, email: emp.email,
+        department: emp.department, designation: emp.designation,
+        baseSalary: emp.baseSalary, role: emp.role || 'employee',
+        assignedArea: emp.assignedArea, assignedPincodes: emp.assignedPincodes,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/auth/mr-login
+router.post('/mr-login', async (req, res) => {
+  try {
+    const { mrId, password } = req.body;
+    if (!mrId || !password) return res.status(400).json({ message: 'MR ID and password required' });
+
+    const mr = await MR.findOne({ mrId });
+    if (!mr) return res.status(401).json({ message: 'Invalid MR ID or password' });
+
+    const valid = await mr.comparePassword(password);
+    if (!valid) return res.status(401).json({ message: 'Invalid MR ID or password' });
+
+    const token = jwt.sign({ id: mr._id, mrId: mr.mrId, role: 'mr', isMR: true }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+    res.json({
+      token,
+      mr: { name: mr.name, mrId: mr.mrId, email: mr.email, area: mr.area, pincodes: mr.pincodes, employeeIds: mr.employeeIds }
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 // POST /api/auth/change-password
-router.post('/change-password', authMiddleware, async (req, res) => {
+router.post('/change-password', auth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    const employee = await Employee.findById(req.user.id);
-    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    const emp = await Employee.findOne({ employeeId: req.user.employeeId });
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
 
-    if (!(await employee.comparePassword(currentPassword)))
-      return res.status(401).json({ message: 'Current password is incorrect' });
+    const valid = await emp.comparePassword(currentPassword);
+    if (!valid) return res.status(401).json({ message: 'Current password is incorrect' });
 
-    employee.password = newPassword;
-    await employee.save();
-    res.json({ message: 'Password changed successfully' });
+    emp.password = newPassword;
+    await emp.save();
+    res.json({ message: 'Password updated successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST /api/auth/forgot-password (demo: just returns a reset token)
+// POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
-    const employee = await Employee.findOne({ email });
-    if (!employee) return res.status(404).json({ message: 'No account with that email' });
-    // In production, send email. Here we return a token for demo.
-    const resetToken = jwt.sign({ id: employee._id }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '15m' });
-    res.json({ message: 'Reset token generated (demo)', resetToken });
+    const emp = await Employee.findOne({ email });
+    if (!emp) return res.status(404).json({ message: 'No account found with this email' });
+    const resetToken = crypto.randomBytes(20).toString('hex');
+    res.json({ message: 'Reset link sent to your email', resetToken });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
