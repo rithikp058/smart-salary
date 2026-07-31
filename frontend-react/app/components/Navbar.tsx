@@ -21,14 +21,6 @@ export default function Navbar() {
     { to: '/profile', label: '👤 Profile' },
   ];
 
-  const navLinks = userIsMR
-    ? [['MR Dashboard', '/mr-dashboard'], ['Salary', '/salary'], ['Attendance', '/attendance'], ['Profile', '/profile']]
-    : [['Dashboard', '/dashboard'], ['Field Reports', '/call-report'], ['Salary', '/salary'], ['Attendance', '/attendance'], ['Profile', '/profile']];
-
-  const navLinks = userIsMR
-    ? [['MR Dashboard', '/mr-dashboard'], ['Salary', '/salary'], ['Attendance', '/attendance'], ['Profile', '/profile']]
-    : [['Dashboard', '/dashboard'], ['Field Reports', '/call-report'], ['Salary', '/salary'], ['Attendance', '/attendance'], ['Profile', '/profile']];
-
   return (
     <nav
       className="sticky top-0 z-40 w-full"
