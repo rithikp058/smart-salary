@@ -49,8 +49,8 @@ export default function CallReport() {
   }, []);
 
   useEffect(() => {
-    if (tab==='history') api.getMyCallReports(month).then((d:any)=>setMyReports(Array.isArray(d)?d:[])).catch(()=>{});
-    if (tab==='stock') api.getMyStockRequests(month).then((d:any)=>setMyStock(Array.isArray(d)?d:[])).catch(()=>{});
+    if (tab==='history') api.getMyCallReports({month}).then((d:any)=>setMyReports(Array.isArray(d)?d:[])).catch(()=>{});
+    if (tab==='stock') api.getMyStockRequests({month}).then((d:any)=>setMyStock(Array.isArray(d)?d:[])).catch(()=>{});
     loadProgress();
   }, [tab, month]);
 
@@ -61,7 +61,7 @@ export default function CallReport() {
   }, [gps, selectedDoc]);
 
   function loadProgress() {
-    api.getMyProgress(month).then((d:any)=>setProgress(d)).catch(()=>{});
+    api.getMyProgress().then((d:any)=>setProgress(d)).catch(()=>{});
   }
 
   function searchDoc(val: string) {
@@ -138,7 +138,7 @@ export default function CallReport() {
     if (!stockPhoto) return setAlert({msg:'Photo required',type:'error'});
     setLoading(true);
     try {
-      await api.raiseStockRequest({...sf, photo:stockPhoto});
+      await api.submitStockRequest({...sf, photo:stockPhoto});
       setAlert({msg:'Stock request raised!',type:'success'});
       setSf({doctorName:'',hospitalName:'',productName:'',quantity:1,destination:'Medical Shop'});
       setStockPhoto(null); setTab('stock');

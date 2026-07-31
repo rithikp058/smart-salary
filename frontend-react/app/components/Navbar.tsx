@@ -17,6 +17,7 @@ export default function Navbar() {
     { to: '/dashboard', label: '🏠 Dashboard' },
     { to: '/salary', label: '💰 Salary' },
     { to: '/attendance', label: '📅 Attendance' },
+    { to: '/call-report', label: '📋 Field Reports' },
     { to: '/pharma-employee', label: '💊 Field Portal' },
     { to: '/profile', label: '👤 Profile' },
   ];

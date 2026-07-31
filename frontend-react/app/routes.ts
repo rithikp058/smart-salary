@@ -12,4 +12,5 @@ export default [
   route("attendance", "routes/attendance.tsx"),
   route("owner", "routes/owner-dashboard.tsx"),
   route("pharma-employee", "routes/pharma-employee.tsx"),
+  route("call-report", "routes/call-report.tsx"),
 ] satisfies RouteConfig;
