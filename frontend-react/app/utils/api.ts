@@ -348,6 +348,11 @@ export const api = {
   createEmployee: (body: object) => MOCK_MODE ? Promise.resolve({}) : req('/owner/employees', { method: 'POST', body: JSON.stringify(body) }, true),
   deleteEmployee: (id: string) => MOCK_MODE ? Promise.resolve({}) : req(`/owner/employees/${id}`, { method: 'DELETE' }, true),
 
+  // ── Owner: Role Change ─────────────────────────────────────────────────
+  changeUserRole: (employeeId: string, newRole: 'mr' | 'employee', replacementMrId?: string) =>
+    MOCK_MODE ? Promise.resolve({ message: 'Role updated (mock)', newRole }) :
+    req(`/owner/employees/role/${employeeId}`, { method: 'PUT', body: JSON.stringify({ newRole, replacementMrId }) }, true),
+
   // ── Owner: Analytics ──────────────────────────────────────────────────
   getAnalytics: (month?: string) => {
     const q = month ? `?month=${month}` : '';

@@ -193,4 +193,82 @@ router.get('/analytics', admin, async (req, res) => {
   }
 });
 
+// PUT /api/owner/employees/role/:employeeId  — promote/demote
+router.put('/employees/role/:employeeId', admin, async (req, res) => {
+  try {
+    const { newRole, replacementMrId } = req.body;
+    if (!['employee', 'mr'].includes(newRole)) {
+      return res.status(400).json({ message: 'Role must be employee or mr' });
+    }
+
+    const emp = await Employee.findOne({ employeeId: req.params.employeeId }).select('-password');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+    if (emp.role === 'owner') return res.status(403).json({ message: 'Cannot change Owner role' });
+
+    // ── PROMOTE: employee → mr ─────────────────────────────────────────
+    if (newRole === 'mr') {
+      // Check if MR record already exists for this email
+      const existing = await MR.findOne({ email: emp.email });
+      if (!existing) {
+        const mr = new MR({
+          mrId: emp.employeeId,   // reuse employeeId as mrId
+          name: emp.name,
+          email: emp.email,
+          password: emp.password, // already hashed — skip pre-save by using direct update
+          phone: emp.phone || '',
+          area: emp.assignedArea || '',
+          pincodes: emp.assignedPincodes || [],
+          employeeIds: [],
+          baseSalary: emp.baseSalary || 0,
+        });
+        // bypass bcrypt double-hash by using $set directly after save
+        await MR.create({
+          mrId: emp.employeeId,
+          name: emp.name,
+          email: emp.email,
+          password: emp.password,
+          phone: emp.phone || '',
+          area: emp.assignedArea || '',
+          pincodes: emp.assignedPincodes || [],
+          employeeIds: [],
+          baseSalary: emp.baseSalary || 0,
+        });
+        // override hashed-again password with original hash
+        await MR.updateOne({ email: emp.email }, { password: emp.password });
+      }
+      // Update Employee role
+      await Employee.updateOne({ employeeId: emp.employeeId }, { role: 'mr', mrId: '' });
+      return res.json({ message: `${emp.name} promoted to MR`, employeeId: emp.employeeId, newRole: 'mr' });
+    }
+
+    // ── DEMOTE: mr → employee ──────────────────────────────────────────
+    if (newRole === 'employee') {
+      // Reassign employees under this MR
+      const underlings = await Employee.find({ mrId: emp.employeeId });
+      if (underlings.length > 0 && !replacementMrId) {
+        return res.status(400).json({
+          message: `This MR has ${underlings.length} assigned employee(s). Provide replacementMrId to reassign them.`,
+          count: underlings.length,
+          employees: underlings.map(u => ({ employeeId: u.employeeId, name: u.name })),
+        });
+      }
+      if (replacementMrId) {
+        await Employee.updateMany({ mrId: emp.employeeId }, { mrId: replacementMrId });
+        // Also update replacement MR's employeeIds list
+        const underlingIds = underlings.map(u => u.employeeId);
+        await MR.updateOne({ mrId: replacementMrId }, { $addToSet: { employeeIds: { $each: underlingIds } } });
+        // Remove from old MR's employeeIds
+        await MR.updateOne({ mrId: emp.employeeId }, { $set: { employeeIds: [] } });
+      }
+      // Delete MR record
+      await MR.deleteOne({ $or: [{ mrId: emp.employeeId }, { email: emp.email }] });
+      // Update Employee role
+      await Employee.updateOne({ employeeId: emp.employeeId }, { role: 'employee' });
+      return res.json({ message: `${emp.name} converted to Employee`, employeeId: emp.employeeId, newRole: 'employee' });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;

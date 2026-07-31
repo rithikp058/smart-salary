@@ -1768,6 +1768,9 @@ function OwnerEmployees({ employees, onRefresh, setAlert }: any) {
   const [showForm, setShowForm] = useState(false);
   const [editEmp, setEditEmp] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [roleModal, setRoleModal] = useState<any>(null); // employee being promoted/demoted
+  const [replacementMrId, setReplacementMrId] = useState('');
+  const [mrs, setMrs] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: '', employeeId: '', email: '', password: '', phone: '',
     department: '', designation: '', baseSalary: '', travelDistance: '',
@@ -1818,6 +1821,30 @@ function OwnerEmployees({ employees, onRefresh, setAlert }: any) {
     if (!confirm('Delete this employee?')) return;
     try { await api.deleteEmployee(id); setAlert({ msg: 'Employee deleted', type: 'success' }); onRefresh(); }
     catch (err: any) { setAlert({ msg: err.message, type: 'error' }); }
+  }
+
+  // Load MRs for replacement selector (needed during demotion)
+  useEffect(() => {
+    api.getMRs().then((d: any) => setMrs(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
+  async function handleRoleChange() {
+    if (!roleModal) return;
+    const target = roleModal;
+    const newRole = target.role === 'mr' ? 'employee' : 'mr';
+    try {
+      const result: any = await api.changeUserRole(
+        target.employeeId,
+        newRole,
+        newRole === 'employee' ? (replacementMrId || undefined) : undefined
+      );
+      setAlert({ msg: result.message || `✅ Role updated to ${newRole}`, type: 'success' });
+      setRoleModal(null);
+      setReplacementMrId('');
+      onRefresh();
+    } catch (err: any) {
+      setAlert({ msg: err.message, type: 'error' });
+    }
   }
 
   return (
@@ -1901,14 +1928,14 @@ function OwnerEmployees({ employees, onRefresh, setAlert }: any) {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                {['ID', 'Name', 'Area', 'Pincodes', 'MR ID', 'Base Salary', 'Actions'].map(h => (
+                {['ID', 'Name', 'Role', 'Area', 'Pincodes', 'MR ID', 'Base Salary', 'Actions'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {employees.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-slate-600">No employees yet</td></tr>
+                <tr><td colSpan={8} className="text-center py-10 text-slate-600">No employees yet</td></tr>
               ) : employees.map((e: any, i: number) => (
                 <tr key={i} className="border-t border-white/4 hover:bg-white/2">
                   <td className="px-4 py-3 text-blue-400 font-semibold text-xs">{e.employeeId}</td>
@@ -1916,17 +1943,40 @@ function OwnerEmployees({ employees, onRefresh, setAlert }: any) {
                     <div className="text-white font-semibold text-xs">{e.name}</div>
                     <div className="text-slate-500 text-xs">{e.designation || e.department || '—'}</div>
                   </td>
+                  {/* Role badge */}
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      e.role === 'owner' ? 'text-red-400 bg-red-400/10' :
+                      e.role === 'mr'    ? 'text-blue-400 bg-blue-400/10' :
+                                           'text-green-400 bg-green-400/10'
+                    }`}>
+                      {(e.role || 'employee').toUpperCase()}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-slate-300 text-xs">{e.assignedArea || '—'}</td>
                   <td className="px-4 py-3 text-slate-400 text-xs">{e.assignedPincodes?.join(', ') || '—'}</td>
                   <td className="px-4 py-3 text-green-400 text-xs font-semibold">{e.mrId || '—'}</td>
                   <td className="px-4 py-3 text-green-400 font-semibold text-xs">₹{(e.baseSalary || 0).toLocaleString()}</td>
-                  <td className="px-4 py-3 flex gap-2">
-                    <button onClick={() => startEdit(e)}
-                      className="px-2.5 py-1 rounded-lg text-xs text-blue-400 hover:text-white transition-all"
-                      style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>Edit</button>
-                    <button onClick={() => deleteEmployee(e._id || e.id)}
-                      className="px-2.5 py-1 rounded-lg text-xs text-red-400 hover:text-white transition-all"
-                      style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>Delete</button>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1 flex-wrap">
+                      <button onClick={() => startEdit(e)}
+                        className="px-2.5 py-1 rounded-lg text-xs text-blue-400 hover:text-white transition-all"
+                        style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>Edit</button>
+                      {e.role !== 'owner' && (
+                        <button onClick={() => { setRoleModal(e); setReplacementMrId(''); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold hover:text-white transition-all ${
+                            e.role === 'mr'
+                              ? 'text-yellow-400 border border-yellow-400/20'
+                              : 'text-purple-400 border border-purple-400/20'
+                          }`}
+                          style={{ background: e.role === 'mr' ? 'rgba(234,179,8,0.08)' : 'rgba(168,85,247,0.08)' }}>
+                          {e.role === 'mr' ? '↓ To Employee' : '↑ To MR'}
+                        </button>
+                      )}
+                      <button onClick={() => deleteEmployee(e._id || e.id)}
+                        className="px-2.5 py-1 rounded-lg text-xs text-red-400 hover:text-white transition-all"
+                        style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1934,12 +1984,63 @@ function OwnerEmployees({ employees, onRefresh, setAlert }: any) {
           </table>
         </div>
       </div>
+
+      {/* Role Change Confirmation Modal */}
+      {roleModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}>
+          <div className="w-full max-w-md rounded-2xl p-6"
+            style={{ background: '#0d1829', border: '1px solid rgba(168,85,247,0.3)' }}>
+            <div className="text-xl mb-1">
+              {roleModal.role === 'mr' ? '⬇️ Convert to Employee' : '⬆️ Promote to MR'}
+            </div>
+            <div className="text-white font-bold text-base mb-1">{roleModal.name}</div>
+            <div className="text-slate-400 text-sm mb-4">{roleModal.employeeId} · Current role: <span className="font-semibold text-white">{roleModal.role?.toUpperCase()}</span></div>
+
+            {roleModal.role === 'mr' ? (
+              <>
+                <div className="p-3 rounded-xl text-xs text-yellow-300 border border-yellow-500/20 mb-4"
+                  style={{ background: 'rgba(234,179,8,0.08)' }}>
+                  ⚠️ This MR may have assigned employees. Select a replacement MR to reassign them, or leave blank if no employees are assigned.
+                </div>
+                <div className="mb-4">
+                  <label className="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Replacement MR (for reassigning employees)</label>
+                  <select value={replacementMrId} onChange={e => setReplacementMrId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm text-white border border-white/8 outline-none"
+                    style={{ background: 'rgba(255,255,255,0.04)' }}>
+                    <option value="">— None / No employees to reassign —</option>
+                    {mrs.filter((m: any) => m.mrId !== roleModal.employeeId).map((m: any) => (
+                      <option key={m.mrId} value={m.mrId}>{m.name} ({m.mrId})</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : (
+              <div className="p-3 rounded-xl text-xs text-blue-300 border border-blue-500/20 mb-4"
+                style={{ background: 'rgba(59,130,246,0.08)' }}>
+                ℹ️ A new MR account will be created with this employee's credentials. All historical records are preserved.
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => { setRoleModal(null); setReplacementMrId(''); }}
+                className="flex-1 py-2.5 rounded-xl text-sm text-slate-400 border border-white/10 hover:text-white transition-all">
+                Cancel
+              </button>
+              <button onClick={handleRoleChange}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.02]"
+                style={{ background: roleModal.role === 'mr'
+                  ? 'linear-gradient(135deg,#d97706,#f59e0b)'
+                  : 'linear-gradient(135deg,#7c3aed,#a855f7)' }}>
+                {roleModal.role === 'mr' ? '↓ Confirm Convert' : '↑ Confirm Promote'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-
-// ── Owner Doctors Manager ──────────────────────────────────────────────────
 function OwnerDoctorsManager({ doctors, setDoctors, employees, alert: _a, setAlert }: any) {
   const [showForm, setShowForm] = useState(false);
   const [locText, setLocText] = useState('');
