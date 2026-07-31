@@ -20,6 +20,7 @@ export default function OwnerDashboard() {
   const [deductionInputs, setDeductionInputs] = useState<Record<string, number>>({});
   const [allIssues, setAllIssues] = useState<any[]>([]);
   const [resolveNote, setResolveNote] = useState<Record<string, string>>({});
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
 
   // ── Pharma State ───────────────────────────────────────────────────────
   const [doctors, setDoctors] = useState<any[]>([]);
@@ -168,6 +169,8 @@ export default function OwnerDashboard() {
     api.getAllCallReports({ month: selectedMonth }).then((d: any) => setAllCallReports(Array.isArray(d) ? d : [])).catch(() => {});
     api.getAllStockRequests({ month: selectedMonth }).then((d: any) => setAllStockRequests(Array.isArray(d) ? d : []))
       .catch(() => {});
+    // Load pending leave count across ALL months for badge
+    api.getAllLeaves('pending').then((d: any) => setPendingLeaveCount(Array.isArray(d) ? d.length : 0)).catch(() => {});
   }, [selectedMonth]);
 
   async function loadAll() {
@@ -267,7 +270,7 @@ export default function OwnerDashboard() {
     ['issues', '🚨 Issues'],
     ['excel', '📋 Excel Sheet'],
     ['holidays', '🎉 Holidays'],
-    ['leaves', '🏖️ Leaves'],
+    ['leaves', pendingLeaveCount > 0 ? `🏖️ Leaves (${pendingLeaveCount})` : '🏖️ Leaves'],
     ['pharma', '💊 Pharma'],
     ['analytics', '📈 Analytics'],
     ['mrs', '🧑‍💼 MR Management'],
@@ -1119,7 +1122,15 @@ function OwnerLeaves({ selectedMonth }: { selectedMonth: string }) {
   const [alert, setAlert] = useState('');
   const cs = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' };
 
-  useEffect(() => { api.getAllLeaves(undefined, selectedMonth).then((l: any) => setLeaves(l)).catch(() => {}); }, [selectedMonth]);
+  function loadLeaves() {
+    // Load all months when filter is pending so no requests get missed
+    const monthParam = filter === 'pending' ? undefined : selectedMonth;
+    api.getAllLeaves(filter === 'all' ? undefined : filter, monthParam)
+      .then((l: any) => setLeaves(Array.isArray(l) ? l : []))
+      .catch(() => {});
+  }
+
+  useEffect(() => { loadLeaves(); }, [selectedMonth, filter]);
 
   async function handleAction(id: string, status: string) {
     try {
@@ -1131,60 +1142,120 @@ function OwnerLeaves({ selectedMonth }: { selectedMonth: string }) {
   }
 
   const filtered = filter === 'all' ? leaves : leaves.filter(l => l.status === filter);
+  const pendingCount = leaves.filter(l => l.status === 'pending').length;
 
   return (
     <div>
-      {alert && <div className="p-3 rounded-xl text-sm mb-4 text-green-300 border border-green-500/20" style={{ background: 'rgba(34,197,94,0.08)' }}>{alert}</div>}
-      <div className="flex gap-1 p-1 rounded-xl mb-4 w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-        {(['all', 'pending', 'approved', 'rejected'] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${filter === f ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
-            style={filter === f ? { background: 'linear-gradient(135deg, #7c3aed, #a855f7)' } : {}}>
-            {f}
-          </button>
-        ))}
+      {alert && (
+        <div className={`p-3 rounded-xl text-sm mb-4 border ${alert.includes('⚠️') ? 'text-red-300 border-red-500/20' : 'text-green-300 border-green-500/20'}`}
+          style={{ background: alert.includes('⚠️') ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)' }}>
+          {alert}
+        </div>
+      )}
+
+      {/* Header with pending badge */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <h3 className="text-white font-bold">🏖️ Leave Requests</h3>
+          {pendingCount > 0 && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold text-yellow-300 animate-pulse"
+              style={{ background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.3)' }}>
+              {pendingCount} Pending
+            </span>
+          )}
+        </div>
+        <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          {(['all', 'pending', 'approved', 'rejected'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${filter === f ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
+              style={filter === f ? {
+                background: f === 'pending' ? 'linear-gradient(135deg,#d97706,#f59e0b)'
+                  : f === 'approved' ? 'linear-gradient(135deg,#059669,#10b981)'
+                  : f === 'rejected' ? 'linear-gradient(135deg,#dc2626,#ef4444)'
+                  : 'linear-gradient(135deg,#7c3aed,#a855f7)'
+              } : {}}>
+              {f}{f === 'pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+            </button>
+          ))}
+        </div>
       </div>
+
       <div className="rounded-2xl overflow-hidden" style={cs}>
-        <div className="p-4 border-b border-white/5 font-bold text-white text-sm">🏖️ Leave Requests — {selectedMonth} ({filtered.length})</div>
+        <div className="p-4 border-b border-white/5 flex items-center justify-between">
+          <div className="font-bold text-white text-sm">
+            {filter === 'pending' ? '⏳ Pending Approvals' : `${filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)} Leave Requests`}
+          </div>
+          <div className="text-xs text-slate-500">{filtered.length} request{filtered.length !== 1 ? 's' : ''}</div>
+        </div>
+
         {filtered.length === 0 ? (
-          <div className="text-center py-10 text-slate-600 text-sm">No {filter === 'all' ? '' : filter} leave requests</div>
+          <div className="text-center py-12 text-slate-600 text-sm">
+            {filter === 'pending' ? '✅ No pending leave requests' : `No ${filter === 'all' ? '' : filter} leave requests`}
+          </div>
         ) : (
           <div className="divide-y divide-white/4">
             {filtered.map((l: any) => (
               <div key={l.id} className="px-5 py-4 hover:bg-white/2 transition-colors">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    {/* Employee + type row */}
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                       <span className="text-white font-semibold text-sm">{l.employeeName}</span>
-                      <span className="text-slate-500 text-xs">{l.employeeId}</span>
+                      <span className="text-slate-500 text-xs bg-white/5 px-2 py-0.5 rounded">{l.employeeId}</span>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${l.leaveType === 'paid' ? 'text-green-400' : 'text-yellow-400'}`}
                         style={{ background: l.leaveType === 'paid' ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)' }}>
-                        {l.leaveType === 'paid' ? '🏖️ Paid' : '📋 Unpaid'}
+                        {l.leaveType === 'paid' ? '🏖️ Paid Leave' : '📋 Unpaid Leave'}
+                      </span>
+                      {/* Status badge */}
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                        l.status === 'approved' ? 'text-green-400 bg-green-400/10' :
+                        l.status === 'rejected' ? 'text-red-400 bg-red-400/10' :
+                        'text-yellow-400 bg-yellow-400/10'
+                      }`}>
+                        {l.status === 'approved' ? '✅ Approved' : l.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
                       </span>
                     </div>
-                    <div className="text-blue-400 text-xs mb-1">📅 {l.dates?.join(', ')}</div>
+                    {/* Dates */}
+                    <div className="text-blue-400 text-xs mb-1">
+                      📅 {l.dates?.length > 1
+                        ? `${l.dates[0]} to ${l.dates[l.dates.length - 1]} (${l.dates.length} day${l.dates.length !== 1 ? 's' : ''})`
+                        : l.dates?.join(', ')}
+                    </div>
+                    {/* Reason */}
                     <div className="text-slate-400 text-xs">{l.reason}</div>
-                    {l.ownerNote && <div className="text-slate-500 text-xs mt-1">Note: {l.ownerNote}</div>}
+                    {/* Applied + note */}
+                    <div className="flex gap-3 mt-1 text-xs text-slate-600">
+                      <span>Applied: {new Date(l.createdAt || l.appliedAt).toLocaleDateString('en-IN')}</span>
+                      {l.ownerNote && <span>Note: {l.ownerNote}</span>}
+                    </div>
+                    {/* Payroll impact info */}
+                    {l.leaveType === 'unpaid' && l.status !== 'rejected' && (
+                      <div className="mt-1 text-xs text-red-400">
+                        ⚠️ ₹{(l.dates?.length || 1) * 250} deduction will apply on payroll
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     {l.status === 'pending' ? (
                       <>
-                        <button onClick={() => handleAction(l.id, 'approved')}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-green-400 transition-all hover:text-white"
-                          style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                        <button onClick={() => { if (confirm(`Approve leave for ${l.employeeName}?`)) handleAction(l.id, 'approved'); }}
+                          className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all hover:scale-[1.02]"
+                          style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
                           ✅ Approve
                         </button>
-                        <button onClick={() => handleAction(l.id, 'rejected')}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 transition-all hover:text-white"
-                          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                        <button onClick={() => { if (confirm(`Reject leave for ${l.employeeName}?`)) handleAction(l.id, 'rejected'); }}
+                          className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all hover:scale-[1.02]"
+                          style={{ background: 'linear-gradient(135deg,#dc2626,#ef4444)' }}>
                           ❌ Reject
                         </button>
                       </>
                     ) : (
-                      <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${l.status === 'approved' ? 'text-green-400' : 'text-red-400'}`}
-                        style={{ background: l.status === 'approved' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)' }}>
-                        {l.status === 'approved' ? '✅ Approved' : '❌ Rejected'}
-                      </span>
+                      <button onClick={() => handleAction(l.id, 'pending')}
+                        className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white transition-all border border-white/10">
+                        ↩ Reset to Pending
+                      </button>
                     )}
                   </div>
                 </div>
